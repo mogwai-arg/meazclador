@@ -1,28 +1,31 @@
-"""Pestaña 1 de la ventana: ver, escuchar y ajustar los temas de una sesión larga antes de cortar."""
+"""Paso 1 de la ventana: ver, escuchar y ajustar los temas de una sesión larga antes de cortar."""
 
 from __future__ import annotations
 
-from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from pathlib import Path
+from tkinter import messagebox, ttk
 
 import numpy as np
 
+from . import preferencias
+from .estilo_ui import ACENTO, S1, S2, S3, S4, S6, SUPERFICIE, TEXTO, TEXTO_2, TEXTO_3, CampoRuta, Tarjeta, deslizador
 from .mezcla import listar_pistas
 from .reproductor import Reproductor
 from .sesion import Tema, a_reloj, detectar_temas, energia, escribir_lista, fragmento, info_pistas
 
 ESCUCHA_S = 12  # duración de cada fragmento de escucha
-COLOR_TEMA = "#cfe3f7"
-COLOR_TEMA_ELEGIDO = "#8fc1ee"
-COLOR_NIVEL = "#3b4a5a"
-COLOR_MARCA = "#1f6fd1"
-COLOR_CABEZAL = "#d62828"
+COLOR_TEMA = "#2A2620"  # franja de un tema: ámbar muy apagado sobre la superficie
+COLOR_TEMA_ELEGIDO = "#4A3A1E"
+COLOR_NIVEL = "#6B717B"
+COLOR_UMBRAL = "#8C6A2C"
+COLOR_MARCA = TEXTO
+COLOR_CABEZAL = ACENTO
 
 
 class PanelSesion(ttk.Frame):
     def __init__(self, padre, app):
-        super().__init__(padre, padding=10)
+        super().__init__(padre)
         self.app = app
         self.reproductor = Reproductor()
         self.archivos: list[Path] = []
@@ -32,82 +35,106 @@ class PanelSesion(ttk.Frame):
         self.umbral = 0.0
         self.marca: float | None = None
         self.editado = False
+        self._editor: ttk.Entry | None = None
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(2, weight=1)
 
-        self.columnconfigure(1, weight=1)
-        self.rowconfigure(5, weight=1)
-        ttk.Label(self, wraplength=700, justify="left", text=(
-            "1) Elegí la carpeta con las pistas de la grabación completa y tocá 'Analizar'. "
-            "2) En el mapa, cada franja celeste es un tema. Hacé clic en cualquier punto del mapa "
-            "para escuchar desde ahí. 3) Si junta o parte temas, mové la sensibilidad. "
-            "4) Ajustá los bordes escuchando el inicio y el final de cada tema, y cortá."
-        )).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
-
+        # --- la grabación
+        origen = Tarjeta(self)
+        origen.grid(row=0, column=0, sticky="ew")
+        origen.columnconfigure(0, weight=1)
         self.sesion = tk.StringVar()
-        app._fila_carpeta(self, 1, "Carpeta de la sesión:", self.sesion)
+        CampoRuta(origen, "Carpeta de la grabación completa (un WAV por micrófono)",
+                  self.sesion).grid(row=0, column=0, sticky="ew")
+        self.btn_analizar = ttk.Button(origen, text="Analizar", style="Primario.TButton", command=self.analizar)
+        self.btn_analizar.grid(row=0, column=1, sticky="s", padx=(S4, 0))
 
-        fila = ttk.Frame(self)
-        fila.grid(row=2, column=0, columnspan=3, sticky="ew", pady=4)
-        fila.columnconfigure(1, weight=1)
-        ttk.Label(fila, text="Sensibilidad:").grid(row=0, column=0, sticky="w")
-        self.sensibilidad = tk.DoubleVar(value=0.45)
-        escala = ttk.Scale(fila, from_=0.2, to=0.8, variable=self.sensibilidad, command=lambda _: self._redetectar())
-        escala.grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Label(fila, text="← une temas · separa más →", foreground="gray").grid(row=0, column=2)
-        ttk.Label(fila, text="   Tema más corto (s):").grid(row=0, column=3)
-        self.min_tema = tk.IntVar(value=60)
-        ttk.Spinbox(fila, from_=10, to=600, increment=10, textvariable=self.min_tema, width=5,
-                    command=self._redetectar).grid(row=0, column=4, padx=4)
-        self.btn_analizar = ttk.Button(fila, text="🔍  Analizar", command=self.analizar)
-        self.btn_analizar.grid(row=0, column=5, padx=(8, 0))
-
-        self.mapa = tk.Canvas(self, height=130, background="white", highlightthickness=1,
-                              highlightbackground="#bbb", cursor="hand2")
-        self.mapa.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(6, 2))
+        # --- el mapa
+        mapa = Tarjeta(self)
+        mapa.grid(row=1, column=0, sticky="ew", pady=(S4, 0))
+        mapa.columnconfigure(0, weight=1)
+        cabecera = ttk.Frame(mapa, style="Superficie.TFrame")
+        cabecera.grid(row=0, column=0, sticky="ew", pady=(0, S2))
+        ttk.Label(cabecera, text="Mapa de la sesión", style="Tarjeta.Subtitulo.TLabel").pack(side="left")
+        self.ayuda_mapa = tk.StringVar(value="")
+        ttk.Label(cabecera, textvariable=self.ayuda_mapa, style="Tarjeta.Pista.TLabel").pack(side="left", padx=S3)
+        self.mapa = tk.Canvas(mapa, height=120, background=SUPERFICIE, highlightthickness=0, cursor="hand2")
+        self.mapa.grid(row=1, column=0, sticky="ew")
         self.mapa.bind("<Configure>", lambda _: self._dibujar())
         self.mapa.bind("<Button-1>", self._clic_mapa)
-        self.ayuda_mapa = tk.StringVar(value="Analizá una sesión para ver el mapa.")
-        ttk.Label(self, textvariable=self.ayuda_mapa, foreground="gray").grid(row=4, column=0, columnspan=3, sticky="w")
 
-        tabla = ttk.Frame(self)
-        tabla.grid(row=5, column=0, columnspan=3, sticky="nsew", pady=(6, 0))
+        ajustes = ttk.Frame(mapa, style="Superficie.TFrame")
+        ajustes.grid(row=2, column=0, sticky="ew", pady=(S3, 0))
+        ttk.Label(ajustes, text="Sensibilidad", style="Tarjeta.Secundario.TLabel").pack(side="left")
+        self.sensibilidad = tk.DoubleVar(value=0.45)
+        escala = deslizador(ajustes, self.sensibilidad, 0.2, 0.8, lambda _: self._redetectar())
+        escala.configure(length=220)
+        escala.pack(side="left", padx=(S3, S2))
+        ttk.Label(ajustes, text="une temas  ·  separa más", style="Tarjeta.Pista.TLabel").pack(side="left")
+        self.min_tema = tk.IntVar(value=60)
+        ttk.Spinbox(ajustes, from_=10, to=600, increment=10, textvariable=self.min_tema, width=5,
+                    command=self._redetectar).pack(side="right")
+        ttk.Label(ajustes, text="Tema más corto (s)", style="Tarjeta.Secundario.TLabel").pack(side="right", padx=S2)
+
+        # --- los temas encontrados
+        tabla = Tarjeta(self)
+        tabla.grid(row=2, column=0, sticky="nsew", pady=(S4, 0))
         tabla.columnconfigure(0, weight=1)
-        tabla.rowconfigure(0, weight=1)
+        tabla.rowconfigure(1, weight=1)
+        cabecera_temas = ttk.Frame(tabla, style="Superficie.TFrame")
+        cabecera_temas.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, S2))
+        self.titulo_temas = tk.StringVar(value="Temas")
+        ttk.Label(cabecera_temas, textvariable=self.titulo_temas, style="Tarjeta.Subtitulo.TLabel").pack(side="left")
+        self.btn_cortar = ttk.Button(cabecera_temas, text="Cortar temas", command=self.cortar, state="disabled")
+        self.btn_cortar.pack(side="right")
         self.lista = ttk.Treeview(tabla, columns=("n", "nombre", "inicio", "fin", "dur"), show="headings",
-                                  height=6, selectmode="browse")
-        for col, titulo, ancho in (("n", "#", 40), ("nombre", "Nombre (doble clic para cambiar)", 300),
-                                   ("inicio", "Inicio", 80), ("fin", "Fin", 80), ("dur", "Duración", 80)):
-            self.lista.heading(col, text=titulo)
-            self.lista.column(col, width=ancho, anchor="w" if col == "nombre" else "center",
-                              stretch=col == "nombre")
-        self.lista.grid(row=0, column=0, sticky="nsew")
+                                  height=5, selectmode="browse")
+        for col, titulo, ancho, alin in (("n", "#", 44, "e"), ("nombre", "NOMBRE  (doble clic para cambiarlo)", 320, "w"),
+                                         ("inicio", "INICIO", 80, "e"), ("fin", "FIN", 80, "e"),
+                                         ("dur", "DURACIÓN", 90, "e")):
+            self.lista.heading(col, text=titulo, anchor=alin)
+            self.lista.column(col, width=ancho, anchor=alin, stretch=col == "nombre")
+        self.lista.grid(row=1, column=0, sticky="nsew")
         barra = ttk.Scrollbar(tabla, orient="vertical", command=self.lista.yview)
-        barra.grid(row=0, column=1, sticky="ns")
+        barra.grid(row=1, column=1, sticky="ns")
         self.lista.configure(yscrollcommand=barra.set)
         self.lista.bind("<<TreeviewSelect>>", lambda _: self._dibujar())
         self.lista.bind("<Double-1>", lambda _: self.renombrar())
 
-        botones = ttk.Frame(self)
-        botones.grid(row=6, column=0, columnspan=3, sticky="w", pady=(6, 0))
-        grupos = [
-            ("Escuchar:", [("▶ Inicio", self.escuchar_inicio), ("▶ Final", self.escuchar_final),
-                           ("⏹ Parar", self.parar)]),
-            ("Inicio:", [("−1 s", lambda: self.mover("inicio", -1)), ("+1 s", lambda: self.mover("inicio", 1)),
-                         ("◆ a la marca", lambda: self.a_la_marca("inicio"))]),
-            ("Fin:", [("−1 s", lambda: self.mover("fin", -1)), ("+1 s", lambda: self.mover("fin", 1)),
-                      ("◆ a la marca", lambda: self.a_la_marca("fin"))]),
+        herramientas = ttk.Frame(tabla, style="Superficie.TFrame")
+        herramientas.grid(row=2, column=0, columnspan=2, sticky="w", pady=(S2, 0))
+        filas = [
+            [("ESCUCHAR", [("▶ Inicio", self.escuchar_inicio), ("▶ Final", self.escuchar_final),
+                           ("■ Parar", self.parar)]),
+             ("INICIO", [("−1 s", lambda: self.mover("inicio", -1)), ("+1 s", lambda: self.mover("inicio", 1)),
+                         ("◆ Marca", lambda: self.a_la_marca("inicio"))]),
+             ("FIN", [("−1 s", lambda: self.mover("fin", -1)), ("+1 s", lambda: self.mover("fin", 1)),
+                      ("◆ Marca", lambda: self.a_la_marca("fin"))])],
+            [("TEMA", [("Renombrar", self.renombrar), ("Dividir en la marca", self.dividir),
+                       ("Unir con el siguiente", self.unir), ("Borrar", self.borrar)])],
         ]
-        for fila_b, (titulo, acciones) in enumerate(grupos):
-            ttk.Label(botones, text=titulo, width=9).grid(row=fila_b, column=0, sticky="w")
-            for col, (texto, cmd) in enumerate(acciones, 1):
-                ttk.Button(botones, text=texto, command=cmd).grid(row=fila_b, column=col, padx=2, pady=1, sticky="ew")
-        ttk.Label(botones, text="Tema:", width=9).grid(row=3, column=0, sticky="w")
-        for col, (texto, cmd) in enumerate((("Renombrar", self.renombrar), ("✂ Dividir en la marca", self.dividir),
-                                            ("Unir con el siguiente", self.unir), ("🗑 Borrar", self.borrar)), 1):
-            ttk.Button(botones, text=texto, command=cmd).grid(row=3, column=col, padx=2, pady=1, sticky="ew")
-
-        self.btn_cortar = ttk.Button(self, text="✂  Cortar temas", command=self.cortar)
-        self.btn_cortar.grid(row=7, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        for grupos in filas:
+            fila = ttk.Frame(herramientas, style="Superficie.TFrame")
+            fila.pack(anchor="w")
+            for g, (titulo, acciones) in enumerate(grupos):
+                ttk.Label(fila, text=titulo, style="Tarjeta.Pista.TLabel").pack(side="left",
+                                                                               padx=(0 if g == 0 else S6, S1))
+                for texto, cmd in acciones:
+                    ttk.Button(fila, text=texto, style="Tarjeta.Fantasma.TButton", command=cmd).pack(side="left")
         self._cabezal()
+
+    def botones_trabajo(self) -> list:
+        return [self.btn_analizar, self.btn_cortar]
+
+    def actualizar_botones(self) -> None:
+        """Una sola acción destacada: 'Analizar' hasta que haya temas; después, 'Cortar'."""
+        if self.temas:
+            self.btn_analizar.configure(style="TButton", text="Volver a analizar")
+            self.btn_cortar.configure(style="Primario.TButton", state="normal",
+                                      text=f"✂  Cortar {len(self.temas)} tema{'s' if len(self.temas) != 1 else ''}")
+        else:
+            self.btn_analizar.configure(style="Primario.TButton", text="Analizar")
+            self.btn_cortar.configure(style="TButton", state="disabled", text="Cortar temas")
 
     # ---------------------------------------------------------- análisis
 
@@ -117,8 +144,10 @@ class PanelSesion(ttk.Frame):
             return
         archivos = listar_pistas(sesion)
         if not archivos:
-            messagebox.showwarning("Meazclador", "No hay archivos de audio en esa carpeta.")
+            self.app.notificar("En esa carpeta no hay archivos de audio (WAV, FLAC o AIFF). Elegí la carpeta "
+                               "donde están las pistas de la grabación.", "aviso")
             return
+        preferencias.guardar(sesion=str(sesion))
 
         def trabajo(cancelar):
             sr, duracion, avisos = info_pistas(archivos)
@@ -133,9 +162,15 @@ class PanelSesion(ttk.Frame):
             self.editado = False
             self.marca = None
             self._redetectar(forzar=True)
-            print(f"{len(self.temas)} temas detectados. Hacé clic en el mapa para escuchar.")
+            self.actualizar_botones()
+            if self.temas:
+                self.app.notificar(f"Encontré {len(self.temas)} temas. Hacé clic en el mapa para escuchar cualquier "
+                                   "momento, ajustá los bordes si hace falta y cortá.", "exito")
+            else:
+                self.app.notificar("No encontré temas. Probá bajar 'Tema más corto' o mover la sensibilidad.",
+                                   "aviso")
 
-        self.app._correr(trabajo, listo)
+        self.app._correr(trabajo, listo, estado="Escuchando la grabación…")
 
     def _redetectar(self, forzar: bool = False) -> None:
         if self.nivel is None:
@@ -152,6 +187,8 @@ class PanelSesion(ttk.Frame):
         self.temas, self.umbral = detectar_temas(self.nivel, min_tema_s=minimo,
                                                  sensibilidad=self.sensibilidad.get())
         self._actualizar_lista()
+        if not self.app.trabajando:
+            self.actualizar_botones()
 
     # ---------------------------------------------------------- tabla y mapa
 
@@ -161,6 +198,8 @@ class PanelSesion(ttk.Frame):
         for i, t in enumerate(self.temas):
             self.lista.insert("", "end", iid=str(i), values=(i + 1, t.nombre, a_reloj(t.inicio), a_reloj(t.fin),
                                                              a_reloj(t.duracion)))
+        cuantos = len(self.temas)
+        self.titulo_temas.set(f"{cuantos} tema{'s' if cuantos != 1 else ''} encontrados" if cuantos else "Temas")
         destino = elegir if elegir is not None else anterior
         if self.temas:
             destino = min(destino if destino is not None else 0, len(self.temas) - 1)
@@ -182,14 +221,22 @@ class PanelSesion(ttk.Frame):
         c = self.mapa
         c.delete("all")
         ancho, alto = c.winfo_width(), c.winfo_height()
-        if self.nivel is None or ancho < 10:
+        if ancho < 10:
+            return
+        if self.nivel is None:
+            c.create_text(ancho / 2, alto / 2 - 10, text="Elegí la carpeta de la grabación y tocá Analizar",
+                          fill=TEXTO_2, font=self.app.fuentes.cuerpo_fuerte)
+            c.create_text(ancho / 2, alto / 2 + 12, text="Acá vas a ver toda la sesión, con cada tema marcado.",
+                          fill=TEXTO_3, font=self.app.fuentes.chica)
+            self.ayuda_mapa.set("")
             return
         abajo = alto - 16  # espacio para la escala de tiempo
         elegido = self._elegido()
         for i, t in enumerate(self.temas):
             color = COLOR_TEMA_ELEGIDO if i == elegido else COLOR_TEMA
             c.create_rectangle(self._x(t.inicio), 0, self._x(t.fin), abajo, fill=color, outline="")
-            c.create_text(self._x(t.inicio) + 4, 3, text=str(i + 1), anchor="nw", font=("TkDefaultFont", 9, "bold"))
+            c.create_text(self._x(t.inicio) + 6, 4, text=str(i + 1), anchor="nw", fill=ACENTO if i == elegido
+                          else TEXTO_2, font=self.app.fuentes.cuerpo_fuerte)
 
         # Nivel de toda la banda: un valor por píxel (el máximo del tramo).
         bordes = np.linspace(0, len(self.nivel), ancho + 1).astype(int)
@@ -202,21 +249,20 @@ class PanelSesion(ttk.Frame):
         puntos += [ancho, abajo]
         c.create_polygon(puntos, fill=COLOR_NIVEL, outline="")
         y_umbral = abajo - np.clip((self.umbral - piso) / max(techo - piso, 1e-9), 0, 1) * (abajo - 16)
-        c.create_line(0, y_umbral, ancho, y_umbral, fill="#e09f3e", dash=(4, 3))
+        c.create_line(0, y_umbral, ancho, y_umbral, fill=COLOR_UMBRAL, dash=(4, 3))
 
         paso = 60 if self.duracion <= 15 * 60 else 300
         for s in np.arange(0, self.duracion, paso):
             x = self._x(s)
-            c.create_line(x, abajo, x, abajo + 4, fill="#888")
-            c.create_text(x + 2, abajo + 3, text=a_reloj(s), anchor="nw", fill="#666", font=("TkDefaultFont", 8))
+            c.create_line(x, abajo, x, abajo + 4, fill=TEXTO_3)
+            c.create_text(x + 3, abajo + 3, text=a_reloj(s), anchor="nw", fill=TEXTO_3, font=self.app.fuentes.chica)
 
         if self.marca is not None:
             x = self._x(self.marca)
             c.create_line(x, 0, x, abajo, fill=COLOR_MARCA, width=2)
-            c.create_text(x + 3, abajo - 12, text=f"◆ {a_reloj(self.marca)}", anchor="w", fill=COLOR_MARCA,
-                          font=("TkDefaultFont", 8, "bold"))
-        self.ayuda_mapa.set(f"Sesión de {a_reloj(self.duracion)} · {len(self.temas)} temas · "
-                            "clic en el mapa = poner la marca ◆ y escuchar desde ahí · línea naranja = umbral")
+            c.create_text(x + 4, abajo - 12, text=f"◆ {a_reloj(self.marca)}", anchor="w", fill=COLOR_MARCA,
+                          font=self.app.fuentes.chica)
+        self.ayuda_mapa.set(f"{a_reloj(self.duracion)} de grabación  ·  clic para escuchar desde ese punto")
 
     def _cabezal(self) -> None:
         """Línea roja que avanza mientras suena un fragmento."""
@@ -238,7 +284,7 @@ class PanelSesion(ttk.Frame):
         try:
             audio, sr = fragmento(self.archivos, desde, hasta)
         except Exception as e:
-            messagebox.showerror("Meazclador", f"No pude leer el fragmento: {e}")
+            self.app.notificar(f"No pude leer ese fragmento de la grabación: {e}", "error")
             return
         aviso = self.reproductor.reproducir(audio, sr, desde)
         if aviso:
@@ -293,7 +339,7 @@ class PanelSesion(ttk.Frame):
     def a_la_marca(self, borde: str) -> None:
         i = self._elegido()
         if i is None or self.marca is None:
-            messagebox.showinfo("Meazclador", "Primero hacé clic en el mapa para poner la marca ◆ donde querés el borde.")
+            self.app.notificar("Primero hacé clic en el mapa para poner la marca ◆ donde querés el borde.", "info")
             return
         t = self.temas[i]
         if borde == "inicio" and self.marca < t.fin - 1:
@@ -301,24 +347,49 @@ class PanelSesion(ttk.Frame):
         elif borde == "fin" and self.marca > t.inicio + 1:
             t.fin = self.marca
         else:
-            messagebox.showinfo("Meazclador", "La marca quedó del lado equivocado de ese tema.")
+            self.app.notificar("La marca quedó del otro lado de ese tema: ponela adentro o del lado del borde "
+                               "que querés mover.", "info")
             return
         self._editar(i)
 
-    def renombrar(self) -> None:
+    def renombrar(self, nombre: str | None = None) -> None:
+        """Cambia el nombre del tema elegido. Sin nombre, abre un campo encima de la fila."""
         i = self._elegido()
         if i is None:
             return
-        nombre = simpledialog.askstring("Meazclador", "Nombre del tema:", initialvalue=self.temas[i].nombre,
-                                        parent=self)
-        if nombre and nombre.strip():
-            self.temas[i].nombre = nombre.strip()
-            self._editar(i)
+        if nombre is not None:
+            if nombre.strip():
+                self.temas[i].nombre = nombre.strip()
+                self._editar(i)
+            return
+        caja = self.lista.bbox(str(i), "nombre")
+        if not caja:
+            return
+        x, y, ancho, alto = caja
+        editor = ttk.Entry(self.lista)
+        editor.insert(0, self.temas[i].nombre)
+        editor.select_range(0, "end")
+        editor.place(x=x, y=y, width=ancho, height=alto)
+        editor.focus_set()
+        self._editor = editor
+
+        def terminar(guardar: bool) -> None:
+            if self._editor is None:
+                return
+            texto = editor.get()
+            self._editor = None
+            editor.destroy()
+            if guardar:
+                self.renombrar(texto)
+
+        editor.bind("<Return>", lambda _: terminar(True))
+        editor.bind("<FocusOut>", lambda _: terminar(True))
+        editor.bind("<Escape>", lambda _: terminar(False))
 
     def dividir(self) -> None:
         i = self._elegido()
         if i is None or self.marca is None or not (self.temas[i].inicio + 1 < self.marca < self.temas[i].fin - 1):
-            messagebox.showinfo("Meazclador", "Poné la marca ◆ (clic en el mapa) adentro del tema que querés dividir.")
+            self.app.notificar("Poné la marca ◆ (clic en el mapa) adentro del tema que querés dividir.", "info")
             return
         t = self.temas[i]
         self.temas.insert(i + 1, Tema(self.marca, t.fin, f"tema_{len(self.temas) + 1:02d}"))
@@ -347,7 +418,7 @@ class PanelSesion(ttk.Frame):
         if not sesion:
             return
         if not self.temas:
-            messagebox.showinfo("Meazclador", "Primero tocá 'Analizar' para encontrar los temas.")
+            self.app.notificar("Primero tocá 'Analizar' para encontrar los temas.", "info")
             return
         self.reproductor.parar()
         destino = sesion / "temas"
@@ -355,10 +426,11 @@ class PanelSesion(ttk.Frame):
         lista = destino / "temas.txt"
         escribir_lista(sorted(self.temas, key=lambda t: t.inicio), lista)
 
-        def listo():
-            self.app.carpeta.set(str(destino))
-            self.app.pestanas.select(1)
-            messagebox.showinfo("Meazclador", "Temas cortados. Ahora podés mezclarlos en la pestaña 2.")
+        cuantos = len(self.temas)
 
-        self.app._correr(["cortar", str(sesion), "--cortes", str(lista)], listo)
+        def listo():
+            self.app.ir_a_mezclar(destino)
+            self.app.notificar(f"Listo: {cuantos} temas cortados en {destino}. Ahora mezclalos.", "exito")
+
+        self.app._correr(["cortar", str(sesion), "--cortes", str(lista)], listo, estado="Cortando los temas…")
 

@@ -1,4 +1,4 @@
-"""Ventana de meazclador: lo mismo que la línea de comandos, con botones."""
+"""Ventana de meazclador: un recorrido en tres pasos (cortar, mezclar, escuchar y retocar)."""
 
 from __future__ import annotations
 
@@ -10,30 +10,26 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import ttk
 
-from . import __version__
-from .cli import main as cli
+from . import __version__, preferencias
 from .audio import Cancelado
+from .estilo_ui import (ACENTO, BORDE, ELEVADA, EXITO, S1, S2, S3, S4, S6, S8, SOBRE_ACENTO, SUPERFICIE, TEXTO,
+                        TEXTO_2, TEXTO_3, Banner, Desplazable, aplicar_tema)
+from .gui_mezclar import PaginaMezclar
 from .gui_retoque import PanelRetoque
 from .gui_sesion import PanelSesion
-from .mezcla import ESTILOS
 
-ESTILOS_GUI = {
-    "Natural (limpio y fuerte)": "natural",
-    "Punk (crudo, estilo Ramones)": "punk",
-}
-GUITARRAS = {
-    "Detectar solo": "auto",
-    "Por línea / DI (simular el ampli)": "directas",
-    "Con ampli microfoneado": "amplificadas",
-}
-VOLUMENES = {
-    "Según el estilo": None,
-    "Normal: Spotify / YouTube (-14 LUFS)": -14.0,
-    "Fuerte: rock pesado (-10 LUFS)": -10.0,
-    "Dinámico: más aire, menos aplastado (-16 LUFS)": -16.0,
-}
+PASOS = [
+    ("Cortar", "la grabación larga",
+     "Encontrá los temas dentro de la grabación completa, escuchalos y cortalos. "
+     "¿Ya tenés los temas separados? Pasá al paso 2."),
+    ("Mezclar", "y masterizar",
+     "Reconoce cada micrófono y mezcla y masteriza todos los temas. Tal como viene ya suena bien."),
+    ("Escuchar", "y retocar",
+     "Ajustá lo que no te convenza y compará con la versión anterior. Cada retoque tarda segundos."),
+]
+HOVER_LATERAL = "#25272C"
 
 
 class _Cola:
@@ -59,137 +55,251 @@ def abrir_carpeta(ruta: Path) -> None:
         subprocess.Popen(["xdg-open", str(ruta)])
 
 
+class BotonPaso(tk.Frame):
+    """Un paso de la barra lateral: número (o ✓), nombre y estado. Todo el bloque es clickeable."""
+
+    def __init__(self, padre, numero: int, titulo: str, subtitulo: str, fuentes, al_elegir):
+        super().__init__(padre, background=SUPERFICIE, cursor="hand2", padx=S4, pady=S3, takefocus=1,
+                         highlightthickness=1, highlightbackground=SUPERFICIE, highlightcolor=ACENTO)
+        self.numero, self.al_elegir, self.fuentes = numero, al_elegir, fuentes
+        # Teclado: Tab llega a cada paso (con un borde ámbar visible) y Enter o Espacio lo eligen.
+        self.bind("<Return>", lambda _: self.al_elegir(self.numero))
+        self.bind("<space>", lambda _: self.al_elegir(self.numero))
+        self.actual, self.hecho = False, False
+        self.barra = tk.Frame(self, width=3, background=SUPERFICIE)
+        self.barra.pack(side="left", fill="y", padx=(0, S3))
+        self.insignia = tk.Canvas(self, width=28, height=28, background=SUPERFICIE, highlightthickness=0)
+        self.insignia.pack(side="left", padx=(0, S3))
+        self.textos = tk.Frame(self, background=SUPERFICIE)
+        self.textos.pack(side="left", fill="x")
+        self.lbl_titulo = tk.Label(self.textos, text=titulo, font=fuentes.cuerpo_fuerte, anchor="w",
+                                   background=SUPERFICIE, foreground=TEXTO)
+        self.lbl_titulo.pack(anchor="w")
+        self.lbl_sub = tk.Label(self.textos, text=subtitulo, font=fuentes.chica, anchor="w",
+                                background=SUPERFICIE, foreground=TEXTO_3)
+        self.lbl_sub.pack(anchor="w")
+        for w in (self, self.barra, self.insignia, self.textos, self.lbl_titulo, self.lbl_sub):
+            w.bind("<Button-1>", lambda _: self.al_elegir(self.numero))
+            w.bind("<Enter>", lambda _: self._pintar(hover=True))
+            w.bind("<Leave>", lambda _: self._pintar())
+        self._pintar()
+
+    def poner(self, actual: bool | None = None, hecho: bool | None = None) -> None:
+        if actual is not None:
+            self.actual = actual
+        if hecho is not None:
+            self.hecho = hecho
+        self._pintar()
+
+    def _pintar(self, hover: bool = False) -> None:
+        fondo = ELEVADA if self.actual else (HOVER_LATERAL if hover else SUPERFICIE)
+        for w in (self, self.insignia, self.textos, self.lbl_titulo, self.lbl_sub):
+            w.configure(background=fondo)
+        self.barra.configure(background=ACENTO if self.actual else fondo)
+        self.lbl_titulo.configure(foreground=TEXTO if (self.actual or hover) else TEXTO_2)
+        c = self.insignia
+        c.delete("all")
+        if self.hecho:
+            c.create_oval(2, 2, 26, 26, fill=EXITO, outline="")
+            c.create_text(14, 14, text="✓", fill=SOBRE_ACENTO, font=self.fuentes.cuerpo_fuerte)
+        elif self.actual:
+            c.create_oval(2, 2, 26, 26, fill=ACENTO, outline="")
+            c.create_text(14, 14, text=str(self.numero), fill=SOBRE_ACENTO, font=self.fuentes.cuerpo_fuerte)
+        else:
+            c.create_oval(3, 3, 25, 25, outline=TEXTO_3, width=1.5)
+            c.create_text(14, 14, text=str(self.numero), fill=TEXTO_2, font=self.fuentes.cuerpo_fuerte)
+
+
 class App(ttk.Frame):
     def __init__(self, raiz: tk.Tk):
-        super().__init__(raiz, padding=12)
+        super().__init__(raiz, style="TFrame")
         self.raiz = raiz
+        self.fuentes = aplicar_tema(raiz)
         self.cola: queue.Queue = queue.Queue()
         self.trabajando = False
-        self.ultima_salida: Path | None = None
-        raiz.title(f"Meazclador {__version__}")
-        raiz.minsize(820, 860)
+        self.proceso: subprocess.Popen | None = None
+        self.cancelacion = threading.Event()
+        self.oyente = None  # quien quiera leer, línea por línea, lo que imprime el trabajo en curso
+        self._oyente_fin = None
+        self._lineas_error: list[str] = []
+        self.paso_actual = 1
+        raiz.title("Meazclador")
+        raiz.geometry("1180x840")
+        raiz.minsize(1040, 740)
         self.grid(sticky="nsew")
         raiz.columnconfigure(0, weight=1)
         raiz.rowconfigure(0, weight=1)
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(2, weight=1)
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
 
-        self.pestanas = ttk.Notebook(self)
-        self.pestanas.grid(row=0, column=0, sticky="nsew")
-        self.pestanas.add(self._pestana_cortar(), text="  1 · Cortar la grabación larga  ")
-        self.pestanas.add(self._pestana_mezclar(), text="  2 · Mezclar y masterizar  ")
-        self.panel_retoque = PanelRetoque(self.pestanas, self)
-        self.pestanas.add(self.panel_retoque, text="  3 · Retocar  ")
+        self._barra_lateral()
+        principal = ttk.Frame(self, padding=(S8, S6, S8, S4))  # márgenes de la zona de trabajo
+        principal.grid(row=0, column=1, sticky="nsew")
+        principal.columnconfigure(0, weight=1)
+        principal.rowconfigure(3, weight=1)
 
-        estado = ttk.Frame(self)
-        estado.grid(row=1, column=0, sticky="ew", pady=(10, 4))
-        estado.columnconfigure(0, weight=1)
-        self.progreso = ttk.Progressbar(estado, mode="indeterminate")
-        self.progreso.grid(row=0, column=0, sticky="ew")
-        self.btn_cancelar = ttk.Button(estado, text="✖ Cancelar", state="disabled", command=self.cancelar)
-        self.btn_cancelar.grid(row=0, column=1, padx=(8, 0))
-        self.proceso: subprocess.Popen | None = None
-        self.cancelacion = threading.Event()
-        self.registro = tk.Text(self, height=8, state="disabled", wrap="word", font=("TkFixedFont", 9))
-        self.registro.grid(row=2, column=0, sticky="nsew")
+        self.titulo = ttk.Label(principal, style="Titulo.TLabel")
+        self.titulo.grid(row=0, column=0, sticky="w")
+        self.descripcion = ttk.Label(principal, style="Secundario.TLabel", wraplength=760, justify="left")
+        self.descripcion.grid(row=1, column=0, sticky="w", pady=(S1, S3))
+        self.banner = Banner(principal, self.fuentes)
+        self.banner.grid(row=2, column=0, sticky="ew")
+
+        self.paginas_marco = ttk.Frame(principal)
+        self.paginas_marco.grid(row=3, column=0, sticky="nsew", pady=(S2, 0))
+        self.paginas_marco.columnconfigure(0, weight=1)
+        self.paginas_marco.rowconfigure(0, weight=1)
+        self.contenedores = [Desplazable(self.paginas_marco) for _ in PASOS]
+        for c in self.contenedores:
+            c.grid(row=0, column=0, sticky="nsew")
+        self.panel_sesion = PanelSesion(self.contenedores[0].interior, self)
+        self.pagina_mezclar = PaginaMezclar(self.contenedores[1].interior, self)
+        self.panel_retoque = PanelRetoque(self.contenedores[2].interior, self)
+        self.paginas = [self.panel_sesion, self.pagina_mezclar, self.panel_retoque]
+        for p in self.paginas:
+            p.pack(fill="both", expand=True)
+
+        self._pie(principal)
+        tecla = "Command" if sys.platform == "darwin" else "Control"
+        for i in range(1, len(PASOS) + 1):
+            raiz.bind_all(f"<{tecla}-Key-{i}>", lambda _, n=i: self.ir_a(n))
+        self._recordar()
+        self.ir_a(2 if preferencias.cargar().get("temas") else 1)
         self._leer_cola()
 
-    # ---------- construcción ----------
+    # ---------------------------------------------------------- estructura
 
-    def _fila_carpeta(self, padre, fila: int, texto: str, var: tk.StringVar, archivo: bool = False) -> None:
-        ttk.Label(padre, text=texto).grid(row=fila, column=0, sticky="w", pady=4)
-        ttk.Entry(padre, textvariable=var).grid(row=fila, column=1, sticky="ew", padx=6)
+    def _barra_lateral(self) -> None:
+        lateral = tk.Frame(self, background=SUPERFICIE, width=248)
+        lateral.grid(row=0, column=0, sticky="ns")
+        lateral.pack_propagate(False)
+        marca = tk.Frame(lateral, background=SUPERFICIE, padx=S6, pady=S6)
+        marca.pack(fill="x")
+        tk.Label(marca, text="MEAZCLADOR", font=self.fuentes.subtitulo, background=SUPERFICIE,
+                 foreground=TEXTO).pack(anchor="w")
+        tk.Label(marca, text="Mezcla automática para bandas", font=self.fuentes.chica, background=SUPERFICIE,
+                 foreground=TEXTO_3).pack(anchor="w", pady=(S1, 0))
+        tk.Frame(lateral, height=1, background=BORDE).pack(fill="x", padx=S6, pady=(0, S3))
+        self.botones_paso: list[BotonPaso] = []
+        for i, (titulo, sub, _) in enumerate(PASOS, 1):
+            b = BotonPaso(lateral, i, titulo, sub, self.fuentes, self.ir_a)
+            b.pack(fill="x")
+            self.botones_paso.append(b)
+        atajo = "⌘" if sys.platform == "darwin" else "Ctrl+"
+        tk.Label(lateral, text=f"Atajos: {atajo}1, {atajo}2, {atajo}3", font=self.fuentes.chica,
+                 background=SUPERFICIE, foreground=TEXTO_3).pack(anchor="w", padx=S6, pady=(S3, 0))
+        tk.Label(lateral, text=f"versión {__version__}", font=self.fuentes.chica, background=SUPERFICIE,
+                 foreground=TEXTO_3).pack(side="bottom", anchor="w", padx=S6, pady=S4)
 
-        def elegir():
-            if archivo:
-                r = filedialog.askopenfilename(filetypes=[("Audio", "*.wav *.flac *.aif *.aiff"), ("Todos", "*.*")])
-            else:
-                r = filedialog.askdirectory()
-            if r:
-                var.set(r)
+    def _pie(self, padre) -> None:
+        pie = tk.Frame(padre, background=SUPERFICIE, padx=S4, pady=S3)
+        pie.grid(row=4, column=0, sticky="ew", pady=(S4, 0))
+        pie.columnconfigure(0, weight=1)
+        textos = tk.Frame(pie, background=SUPERFICIE)
+        textos.grid(row=0, column=0, sticky="ew")
+        self.estado = tk.StringVar(value="Listo.")
+        self.estado_detalle = tk.StringVar(value="")
+        tk.Label(textos, textvariable=self.estado, font=self.fuentes.cuerpo_fuerte, background=SUPERFICIE,
+                 foreground=TEXTO, anchor="w").pack(anchor="w")
+        tk.Label(textos, textvariable=self.estado_detalle, font=self.fuentes.chica, background=SUPERFICIE,
+                 foreground=TEXTO_3, anchor="w").pack(anchor="w")
+        self.progreso = ttk.Progressbar(pie, mode="determinate", length=220, maximum=1.0)
+        self.progreso.grid(row=0, column=1, padx=S4)
+        self.btn_cancelar = ttk.Button(pie, text="Cancelar", state="disabled", command=self.cancelar)
+        self.btn_cancelar.grid(row=0, column=2)
+        self.btn_detalles = ttk.Button(pie, text="Ver detalles", style="Tarjeta.Fantasma.TButton",
+                                       command=self._alternar_detalles)
+        self.btn_detalles.grid(row=0, column=3, padx=(S2, 0))
+        self.registro = tk.Text(pie, height=9, state="disabled", wrap="word", font=self.fuentes.mono,
+                                background="#121316", foreground=TEXTO_2, relief="flat", borderwidth=0,
+                                padx=S3, pady=S2, insertbackground=TEXTO, highlightthickness=0)
+        self._detalles_visibles = False
 
-        ttk.Button(padre, text="Elegir…", command=elegir).grid(row=fila, column=2)
+    def _alternar_detalles(self) -> None:
+        self._detalles_visibles = not self._detalles_visibles
+        if self._detalles_visibles:
+            self.registro.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(S3, 0))
+            self.btn_detalles.configure(text="Ocultar detalles")
+        else:
+            self.registro.grid_remove()
+            self.btn_detalles.configure(text="Ver detalles")
 
-    def _pestana_cortar(self) -> ttk.Frame:
-        self.panel_sesion = PanelSesion(self.pestanas, self)
-        return self.panel_sesion
+    def _recordar(self) -> None:
+        prefs = preferencias.cargar()
+        if prefs.get("sesion"):
+            self.panel_sesion.sesion.set(prefs["sesion"])
+        if prefs.get("temas"):
+            self.pagina_mezclar.carpeta.set(prefs["temas"])
+            self.panel_retoque.carpeta.set(prefs["temas"])
 
-    def _pestana_mezclar(self) -> ttk.Frame:
-        f = ttk.Frame(self.pestanas, padding=10)
-        f.columnconfigure(1, weight=1)
-        ttk.Label(f, wraplength=640, justify="left", text=(
-            "Elegí la carpeta de UN tema (con sus pistas) o la carpeta 'temas' que crea el paso 1 "
-            "para mezclar todos. Los nombres de los archivos tienen que decir qué instrumento es "
-            "(Bombo, Caja, Bajo, Guitarra, Voz, Coros…)."
-        )).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+    # ---------------------------------------------------------- navegación
 
-        self.carpeta = tk.StringVar()
-        self._fila_carpeta(f, 1, "Carpeta:", self.carpeta)
+    def ir_a(self, paso: int) -> None:
+        self.paso_actual = paso
+        titulo, sub, desc = PASOS[paso - 1]
+        self.titulo.configure(text=f"{titulo} {sub}")
+        self.descripcion.configure(text=desc)
+        for i, b in enumerate(self.botones_paso, 1):
+            b.poner(actual=i == paso)
+        self.contenedores[paso - 1].tkraise()
+        if self.banner.tipo != "error":
+            self.banner.ocultar()
+        al_mostrar = getattr(self.paginas[paso - 1], "al_mostrar", None)
+        if al_mostrar:
+            al_mostrar()
 
-        ttk.Label(f, text="Estilo:").grid(row=2, column=0, sticky="w", pady=4)
-        self.estilo = tk.StringVar(value=next(iter(ESTILOS_GUI)))
-        combo = ttk.Combobox(f, textvariable=self.estilo, values=list(ESTILOS_GUI), state="readonly")
-        combo.grid(row=2, column=1, sticky="ew", padx=6)
-        combo.bind("<<ComboboxSelected>>", lambda _: self._estilo_elegido())
+    def marcar_hecho(self, paso: int) -> None:
+        self.botones_paso[paso - 1].poner(hecho=True)
 
-        ttk.Label(f, text="Guitarras grabadas:").grid(row=3, column=0, sticky="w", pady=4)
-        self.guitarras = tk.StringVar(value=next(iter(GUITARRAS)))
-        ttk.Combobox(f, textvariable=self.guitarras, values=list(GUITARRAS), state="readonly").grid(
-            row=3, column=1, sticky="ew", padx=6)
+    def ir_a_mezclar(self, carpeta_temas: Path) -> None:
+        self.pagina_mezclar.carpeta.set(str(carpeta_temas))
+        self.panel_retoque.carpeta.set(str(carpeta_temas))
+        preferencias.guardar(temas=str(carpeta_temas))
+        self.marcar_hecho(1)
+        self.ir_a(2)
 
-        ttk.Label(f, text="Afinar voces:").grid(row=4, column=0, sticky="w", pady=4)
-        self.afinar = tk.DoubleVar(value=ESTILOS[next(iter(ESTILOS_GUI.values()))].afinar)
-        ttk.Scale(f, from_=0, to=1, variable=self.afinar,
-                  command=lambda _: self.txt_afinar.set(self._texto_afinar())).grid(row=4, column=1, sticky="ew", padx=6)
-        self.txt_afinar = tk.StringVar(value=self._texto_afinar())
-        ttk.Label(f, textvariable=self.txt_afinar, width=18).grid(row=4, column=2)
+    def ir_a_retocar(self, carpeta: Path) -> None:
+        self.panel_retoque.carpeta.set(str(carpeta))
+        self.marcar_hecho(2)
+        self.ir_a(3)
 
-        ttk.Label(f, text="Tonalidad (opcional):").grid(row=5, column=0, sticky="w", pady=4)
-        self.tonalidad = tk.StringVar()
-        ttk.Entry(f, textvariable=self.tonalidad, width=12).grid(row=5, column=1, sticky="w", padx=6)
-        ttk.Label(f, text="ej: Am, E, La menor", foreground="gray").grid(row=5, column=2)
+    @property
+    def carpeta(self) -> tk.StringVar:  # compatibilidad: la carpeta del paso 2
+        return self.pagina_mezclar.carpeta
 
-        ttk.Label(f, text="Volumen final:").grid(row=6, column=0, sticky="w", pady=4)
-        self.volumen = tk.StringVar(value=next(iter(VOLUMENES)))
-        ttk.Combobox(f, textvariable=self.volumen, values=list(VOLUMENES), state="readonly").grid(
-            row=6, column=1, sticky="ew", padx=6)
+    # ---------------------------------------------------------- avisos y estado
 
-        self.referencia = tk.StringVar()
-        self._fila_carpeta(f, 7, "Tema de referencia (opcional):", self.referencia, archivo=True)
-        self.sample_bombo = tk.StringVar()
-        self._fila_carpeta(f, 8, "Sample de bombo (opcional):", self.sample_bombo, archivo=True)
-        self.sample_caja = tk.StringVar()
-        self._fila_carpeta(f, 9, "Sample de caja (opcional):", self.sample_caja, archivo=True)
+    def notificar(self, texto: str, tipo: str = "info", accion=None) -> None:
+        self.banner.mostrar(texto, tipo, accion)
 
-        botones = ttk.Frame(f)
-        botones.grid(row=10, column=0, columnspan=3, sticky="w", pady=(12, 0))
-        self.btn_mezclar = ttk.Button(botones, text="🎚  Mezclar y masterizar", command=self.mezclar)
-        self.btn_mezclar.pack(side="left")
-        self.btn_abrir = ttk.Button(botones, text="📂  Abrir resultados", state="disabled",
-                                    command=lambda: self.ultima_salida and abrir_carpeta(self.ultima_salida))
-        self.btn_abrir.pack(side="left", padx=8)
-        return f
-
-    def _texto_afinar(self) -> str:
-        v = self.afinar.get()
-        if v < 0.05:
-            return "no tocar"
-        if ESTILOS_GUI.get(self.estilo.get()) == "punk":
-            return f"{v:.0%} (sólo desafinadas)"
-        return f"{v:.0%}" + (" (natural)" if v <= 0.6 else " (marcado)")
-
-    def _estilo_elegido(self) -> None:
-        estilo = ESTILOS[ESTILOS_GUI[self.estilo.get()]]
-        self.afinar.set(estilo.afinar if estilo.afinar else 0.0)
-        self.txt_afinar.set(self._texto_afinar())
-
-    # ---------- trabajos ----------
+    def poner_estado(self, texto: str, detalle: str = "", progreso: float | None = None) -> None:
+        self.estado.set(texto)
+        self.estado_detalle.set(detalle)
+        if progreso is None:
+            if str(self.progreso["mode"]) != "indeterminate":
+                self.progreso.configure(mode="indeterminate", maximum=100)
+                self.progreso.start(12)
+        else:
+            if str(self.progreso["mode"]) != "determinate":
+                self.progreso.stop()
+                self.progreso.configure(mode="determinate", maximum=1.0)
+            self.progreso["value"] = progreso
 
     def _log(self, texto: str) -> None:
         self.registro.configure(state="normal")
         self.registro.insert("end", texto)
         self.registro.see("end")
         self.registro.configure(state="disabled")
+        for linea in texto.splitlines():
+            linea = linea.strip()
+            if not linea:
+                continue
+            if linea.lower().startswith(("error", "traceback")):
+                self._lineas_error.append(linea)
+            if self.oyente:
+                self.oyente(linea)
+            elif self.trabajando:
+                self.estado_detalle.set(linea[:120])
 
     def _leer_cola(self) -> None:
         try:
@@ -203,9 +313,13 @@ class App(ttk.Frame):
             pass
         self.after(100, self._leer_cola)
 
+    # ---------------------------------------------------------- trabajos
+
     def _botones_trabajo(self) -> list:
-        p = self.panel_sesion
-        return [p.btn_analizar, p.btn_cortar, self.btn_mezclar, self.panel_retoque.btn_aplicar]
+        botones = []
+        for p in self.paginas:
+            botones += p.botones_trabajo()
+        return botones
 
     @staticmethod
     def _comando(args: list[str]) -> list[str]:
@@ -214,21 +328,26 @@ class App(ttk.Frame):
             return [sys.executable, *args]
         return [sys.executable, "-m", "meazclador.app", *args]
 
-    def _correr(self, tarea, al_terminar=None) -> None:
+    def escuchar_trabajo(self, al_leer_linea, al_terminar=None) -> None:
+        """Para el próximo trabajo: recibir cada línea que imprime y saber cómo terminó (código)."""
+        self.oyente = al_leer_linea
+        self._oyente_fin = al_terminar
+
+    def _correr(self, tarea, al_terminar=None, estado: str = "Trabajando…") -> None:
         """Corre un trabajo en segundo plano sin congelar la ventana.
 
         - Lista de argumentos: se lanza como proceso aparte (así 'Cancelar' lo corta en el acto).
-        - Función: corre en un hilo; recibe un callback `cancelar()` si lo acepta, y al_terminar
-          recibe lo que devolvió.
+        - Función: corre en un hilo; recibe un callback `cancelar()`, y al_terminar recibe lo que devolvió.
         """
         if self.trabajando:
             return
         self.trabajando = True
+        self._lineas_error = []
         self.cancelacion.clear()
         for b in self._botones_trabajo():
             b.configure(state="disabled")
         self.btn_cancelar.configure(state="normal")
-        self.progreso.start(12)
+        self.poner_estado(estado)
         if not callable(tarea):
             self._log("\n▶ " + " ".join(tarea) + "\n")
 
@@ -268,59 +387,49 @@ class App(ttk.Frame):
         if self.proceso and self.proceso.poll() is None:
             self.proceso.kill()
         self._log("\n✖ Cancelando...\n")
+        self.poner_estado("Cancelando…")
 
     def _fin(self, codigo: int, al_terminar) -> None:
         self.trabajando = False
         self.proceso = None
+        fin, self._oyente_fin, self.oyente = self._oyente_fin, None, None
+        if fin:
+            fin(codigo)
         self.progreso.stop()
+        self.progreso.configure(mode="determinate", maximum=1.0)
+        self.progreso["value"] = 0
         self.btn_cancelar.configure(state="disabled")
         for b in self._botones_trabajo():
             b.configure(state="normal")
+        for p in self.paginas:
+            actualizar = getattr(p, "actualizar_botones", None)
+            if actualizar:
+                actualizar()
         if codigo == -1:
+            self.poner_estado("Cancelado.", "", 0)
             self._log("✖ Cancelado. Lo que se estaba haciendo quedó a medias; podés volver a empezar.\n")
+            self.notificar("Cancelado. Lo que se estaba haciendo quedó a medias; podés volver a empezar "
+                           "cuando quieras.", "aviso")
         elif codigo == 0:
+            self.poner_estado("Listo.", "", 0)
             if al_terminar:
                 al_terminar()
         else:
-            messagebox.showerror("Meazclador", "Algo salió mal. Mirá el mensaje en el registro de abajo.")
+            self.poner_estado("Algo salió mal.", "", 0)
+            motivo = self._lineas_error[-1] if self._lineas_error else "Mirá los detalles para saber qué pasó."
+            self.notificar(f"No se pudo terminar. {motivo}", "error",
+                           ("Ver detalles", lambda: self._detalles_visibles or self._alternar_detalles()))
 
     def _carpeta_valida(self, var: tk.StringVar) -> Path | None:
         ruta = Path(var.get().strip())
         if not var.get().strip() or not ruta.is_dir():
-            messagebox.showwarning("Meazclador", "Elegí primero una carpeta.")
+            self.notificar("Primero elegí una carpeta (botón 'Elegir…').", "aviso")
             return None
         return ruta
-
-    def mezclar(self) -> None:
-        carpeta = self._carpeta_valida(self.carpeta)
-        if not carpeta:
-            return
-        args = ["mezclar", str(carpeta), "--afinar", f"{self.afinar.get():.2f}",
-                "--estilo", ESTILOS_GUI[self.estilo.get()], "--guitarras", GUITARRAS[self.guitarras.get()]]
-        if VOLUMENES[self.volumen.get()] is not None:
-            args += ["--lufs", str(VOLUMENES[self.volumen.get()])]
-        for opcion, var in (("--tonalidad", self.tonalidad), ("--referencia", self.referencia),
-                            ("--sample-bombo", self.sample_bombo), ("--sample-caja", self.sample_caja)):
-            if var.get().strip():
-                args += [opcion, var.get().strip()]
-
-        def listo():
-            mezcla = carpeta / "mezcla"
-            self.ultima_salida = mezcla if mezcla.is_dir() else carpeta / "masters"
-            self.btn_abrir.configure(state="normal")
-            self.panel_retoque.carpeta.set(str(carpeta))
-            messagebox.showinfo("Meazclador", f"¡Listo! Los resultados están en:\n{self.ultima_salida}\n\n"
-                                "Si algo no te convence (voz, reverb, presencia), ajustalo en la pestaña 3 · Retocar.")
-
-        self._correr(args, listo)
 
 
 def main() -> int:
     raiz = tk.Tk()
-    try:
-        ttk.Style(raiz).theme_use("vista" if sys.platform.startswith("win") else "clam")
-    except tk.TclError:
-        pass
     App(raiz)
     raiz.mainloop()
     return 0

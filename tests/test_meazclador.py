@@ -281,43 +281,22 @@ def test_reproductor_sabe_por_donde_va(monkeypatch):
 
 
 def test_panel_de_sesion(tmp_path, monkeypatch):
-    tk = pytest.importorskip("tkinter")
-    try:
-        raiz = tk.Tk()
-    except tk.TclError:
-        pytest.skip("sin pantalla")
-    import time
-
-    from meazclador import gui, gui_sesion
-
     sesion = tmp_path / "sesion"
     reales = _sesion_simulada(sesion, tmp_path)
-    avisos = []
-    for nombre in ("showinfo", "showwarning", "showerror"):
-        monkeypatch.setattr(gui.messagebox, nombre, lambda *a, n=nombre: avisos.append((n, a[1])))
-        monkeypatch.setattr(gui_sesion.messagebox, nombre, lambda *a, n=nombre: avisos.append((n, a[1])))
-    monkeypatch.setattr(gui_sesion.messagebox, "askyesno", lambda *a: True)
-    monkeypatch.setattr(gui_sesion.simpledialog, "askstring", lambda *a, **k: "Help")
-
-    app = gui.App(raiz)
-    raiz.geometry("900x900")
+    raiz, app, avisos = _app_de_prueba(monkeypatch, tmp_path)
     p = app.panel_sesion
     escuchado = []
     p.reproductor.reproducir = lambda audio, sr, desde: escuchado.append((desde, audio.shape[1] / sr))
 
-    def esperar():
-        raiz.update()
-        while app.trabajando:
-            raiz.update()
-            time.sleep(0.02)
-        raiz.update()
-
     try:
+        assert str(p.btn_cortar["state"]) == "disabled"  # hasta analizar, la acción es 'Analizar'
         p.sesion.set(str(sesion))
         p.min_tema.set(10)
         p.analizar()
-        esperar()
+        _esperar(raiz, app)
         assert len(p.temas) == 3 and p.mapa.find_all()  # el mapa se dibujó
+        assert avisos[-1][0] == "exito" and "Encontré 3 temas" in avisos[-1][1]
+        assert str(p.btn_cortar["style"]) == "Primario.TButton" and "Cortar 3 temas" in str(p.btn_cortar["text"])
 
         # Sensibilidad muy alta: los temas se recalculan al instante (sin volver a leer los archivos).
         p.sensibilidad.set(0.95)
@@ -337,18 +316,89 @@ def test_panel_de_sesion(tmp_path, monkeypatch):
         p.mover("inicio", 1)
         assert p.temas[1].inicio == pytest.approx(inicio + 1)
         assert escuchado[-1][0] == pytest.approx(p.temas[1].inicio - 2)  # escucha el nuevo inicio
-        p.renombrar()
-        assert p.temas[1].nombre == "Help"
+        p.renombrar()  # campo de texto encima de la fila
+        raiz.update()
+        assert p._editor is not None
+        p._editor.delete(0, "end")
+        p._editor.insert(0, "Help")
+        p._editor.event_generate("<Return>")
+        raiz.update()
+        assert p.temas[1].nombre == "Help" and p._editor is None
         p.dividir()
         assert len(p.temas) == 4 and p.temas[2].inicio == pytest.approx(p.marca)
         p.unir()
         assert len(p.temas) == 3 and p.temas[1].fin == pytest.approx(reales[1][1], abs=4)
 
         p.cortar()
-        esperar()
+        _esperar(raiz, app)
         carpetas = sorted(d.name for d in (sesion / "temas").iterdir() if d.is_dir())
         assert carpetas == ["02_Help", "tema_01", "tema_03"]
-        assert ("showinfo", "Temas cortados. Ahora podés mezclarlos en la pestaña 2.") in avisos
+        assert avisos[-1][0] == "exito" and avisos[-1][1].startswith("Listo: 3 temas cortados")
+        # Al cortar, la ventana pasa sola al paso 2 con la carpeta de temas lista y el paso 1 marcado.
+        assert app.paso_actual == 2 and app.botones_paso[0].hecho
+        assert app.pagina_mezclar.carpeta.get() == str(sesion / "temas")
+        assert len(app.pagina_mezclar.temas) == 3
+    finally:
+        raiz.destroy()
+
+
+def test_paso_mezclar_muestra_el_avance_de_cada_tema(tmp_path, monkeypatch):
+    from meazclador import demo
+
+    for nombre in ("01 Help", "02 Twist and Shout"):
+        demo.main(tmp_path / "temas" / nombre)
+    raiz, app, avisos = _app_de_prueba(monkeypatch, tmp_path)
+    p = app.pagina_mezclar
+    try:
+        p.carpeta.set(str(tmp_path / "temas"))
+        raiz.update()
+        p.actualizar_lista()
+        assert [t.name for t in p.temas] == ["01 Help", "02 Twist and Shout"]
+        assert "Mezclar todos los temas" in str(p.btn_mezclar["text"])
+        estados_vistos = set()
+        original = p._fila
+
+        def fila(tema, estado):
+            estados_vistos.add((tema.name, estado))
+            original(tema, estado)
+
+        p._fila = fila
+        p.mezclar()
+        _esperar(raiz, app, limite=240)
+        assert ("01 Help", "mezclando") in estados_vistos and ("02 Twist and Shout", "mezclando") in estados_vistos
+        assert all("listo" in p.tabla.item(n, "tags") for n in ("01 Help", "02 Twist and Shout"))
+        assert avisos[-1][0] == "exito" and "Los 2 temas quedaron mezclados" in avisos[-1][1]
+        assert app.botones_paso[1].hecho and (tmp_path / "temas" / "masters" / "01 Help.wav").is_file()
+        assert str(p.btn_abrir["state"]) == "normal"
+        # Desde el aviso se pasa a escuchar y retocar, con los temas ya cargados.
+        app.ir_a_retocar(tmp_path / "temas")
+        raiz.update()
+        assert app.paso_actual == 3 and list(app.panel_retoque.mezclas) == ["01 Help", "02 Twist and Shout"]
+    finally:
+        raiz.destroy()
+
+
+def test_paso_mezclar_sin_temas_explica_que_hacer(tmp_path, monkeypatch):
+    raiz, app, avisos = _app_de_prueba(monkeypatch, tmp_path)
+    try:
+        (tmp_path / "vacia").mkdir()
+        app.pagina_mezclar.carpeta.set(str(tmp_path / "vacia"))
+        app.pagina_mezclar.actualizar_lista()
+        assert str(app.pagina_mezclar.btn_mezclar["state"]) == "disabled"
+        assert app.pagina_mezclar.vacio.winfo_manager() == "place"  # mensaje de 'todavía no hay temas'
+        app.ir_a(3)
+        assert app.panel_retoque.vacio.winfo_manager() == "grid"  # 'todavía no hay temas mezclados'
+        # Teclado: atajos Ctrl+1..3 registrados y Enter sobre un paso de la barra lateral lo elige.
+        import sys
+
+        tecla = "Command" if sys.platform == "darwin" else "Control"
+        assert all(raiz.bind_all(f"<{tecla}-Key-{i}>") for i in (1, 2, 3))
+        paso = app.botones_paso[1]
+        assert paso.bind("<Return>") and paso.bind("<space>") and str(paso["takefocus"]) == "1"
+        raiz.update()
+        paso.event_generate("<Button-1>", x=5, y=5)
+        raiz.update()
+        assert app.paso_actual == 2
     finally:
         raiz.destroy()
 
@@ -431,19 +481,27 @@ def test_retocar_una_mezcla_guardada(tmp_path):
     assert "Retoques: voz +3.0 dB" in (mezcla / "informe.txt").read_text(encoding="utf-8")
 
 
-def _app_de_prueba(monkeypatch):
+def _app_de_prueba(monkeypatch, tmp_path):
+    """Ventana real (en pantalla virtual), sin tocar las preferencias del usuario. Devuelve los avisos
+    que muestra la ventana como (tipo, texto)."""
     tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("MEAZCLADOR_PREFERENCIAS", str(tmp_path / "preferencias.json"))
     try:
         raiz = tk.Tk()
     except tk.TclError:
         pytest.skip("sin pantalla")
-    from meazclador import gui, gui_retoque, gui_sesion
+    from meazclador import gui, gui_sesion
 
-    avisos = []
-    for modulo in (gui, gui_sesion, gui_retoque):
-        for nombre in ("showinfo", "showwarning", "showerror"):
-            monkeypatch.setattr(modulo.messagebox, nombre, lambda *a, n=nombre: avisos.append((n, a[1])))
+    monkeypatch.setattr(gui_sesion.messagebox, "askyesno", lambda *a: True)
     app = gui.App(raiz)
+    avisos = []
+    original = app.notificar
+
+    def notificar(texto, tipo="info", accion=None):
+        avisos.append((tipo, texto))
+        original(texto, tipo, accion)
+
+    app.notificar = notificar
     return raiz, app, avisos
 
 
@@ -464,7 +522,7 @@ def test_boton_cancelar_corta_la_mezcla(tmp_path, monkeypatch):
 
     from meazclador import demo
 
-    raiz, app, avisos = _app_de_prueba(monkeypatch)
+    raiz, app, avisos = _app_de_prueba(monkeypatch, tmp_path)
     try:
         demo.main(tmp_path / "tema")
         app._correr(["mezclar", str(tmp_path / "tema"), "--estilo", "punk"])
@@ -479,7 +537,8 @@ def test_boton_cancelar_corta_la_mezcla(tmp_path, monkeypatch):
         assert "Cancelado" in registro
         assert not (tmp_path / "tema" / "mezcla" / "master.wav").exists()
         assert str(app.btn_cancelar["state"]) == "disabled"
-        assert not [a for a in avisos if a[0] == "showerror"]
+        assert not [a for a in avisos if a[0] == "error"]
+        assert avisos[-1][0] == "aviso" and avisos[-1][1].startswith("Cancelado")
     finally:
         raiz.destroy()
 
@@ -491,7 +550,7 @@ def test_pestana_retocar(tmp_path, monkeypatch):
 
     demo.main(tmp_path / "temas" / "01_Help")
     assert cli(["mezclar", str(tmp_path / "temas" / "01_Help"), "--estilo", "punk"]) == 0
-    raiz, app, avisos = _app_de_prueba(monkeypatch)
+    raiz, app, avisos = _app_de_prueba(monkeypatch, tmp_path)
     try:
         p = app.panel_retoque
         escuchado = []
@@ -512,7 +571,8 @@ def test_pestana_retocar(tmp_path, monkeypatch):
         assert escuchado[-1][1] == (2, 16 * 48000)
         p.escuchar("master_anterior.wav")
         assert len(escuchado) == 2
-        assert not [a for a in avisos if a[0] == "showerror"]
+        assert not [a for a in avisos if a[0] == "error"]
+        assert ("exito", "Retoque aplicado. Ya está sonando la versión nueva; compará con '▶ Anterior'.") in avisos
     finally:
         raiz.destroy()
 

@@ -39,27 +39,25 @@ Los ejecutables se arman y se prueban solos en GitHub cada vez que cambia el có
 
 ## Uso con la ventana
 
-**Pestaña 1 · Cortar la grabación larga.** Si grabaron un ensayo o un show entero (por ejemplo
-40 minutos, un WAV por micrófono), elegí esa carpeta y tocá *Analizar*. Aparece un **mapa de la
-sesión**: cada franja celeste es un tema. **Hacé clic en cualquier punto del mapa para escucharlo.**
-Si junta o parte temas, mové la *sensibilidad*: el mapa se actualiza al instante. Para cada tema
-podés escuchar el inicio y el final, correr cada borde de a 1 segundo o llevarlo a la marca ◆
-(el último clic en el mapa), dividir, unir, borrar y ponerle nombre. Después tocá *Cortar temas*.
-Los archivos se leen de a pedazos, así que no importa que pesen varios GB.
+La ventana es un recorrido en tres pasos (barra lateral, o Ctrl+1/2/3 — ⌘ en Mac). Recuerda las
+últimas carpetas elegidas, muestra los avisos dentro de la misma pantalla y cualquier trabajo largo
+se puede frenar con **Cancelar**. El detalle técnico de lo que va haciendo está en **Ver detalles**.
 
-**Pestaña 2 · Mezclar y masterizar.** Elegí la carpeta de un tema o la carpeta `temas` para
-mezclarlos todos. El estilo de entrada es **Natural** (limpio y fuerte); también está **Punk**.
-Tocá *Mezclar y masterizar*. Cada tema queda en
-`tema/mezcla/master.wav` y además todos juntos en `temas/masters/`.
+**1 · Cortar la grabación larga.** Elegí la carpeta de la grabación completa (un WAV por micrófono)
+y tocá *Analizar*. En el **mapa de la sesión** cada franja es un tema: hacé clic en cualquier punto
+para escucharlo. Si junta o parte temas, mové la *sensibilidad* (el mapa se actualiza al instante).
+Para cada tema podés escuchar el inicio y el final, correr los bordes, llevarlos a la marca ◆,
+dividir, unir, borrar y renombrar (doble clic en el nombre). *Cortar* te lleva solo al paso 2.
 
-**Pestaña 3 · Retocar.** Después de mezclar, subí o bajá voz, coros, guitarras, bajo y batería,
-la cantidad de reverb, **sacar sala** (0 % = la habitación original, 150 % = más seco) y la
-**presencia** del máster (cuánto trae todo adelante), y tocá *Aplicar*. Si en un tema canta otro
-integrante, elegí ahí la **voz principal**: se vuelven a procesar sólo las voces.
-No vuelve a procesar las pistas, así que tarda segundos. Escuchá *Mezcla actual* y *Versión anterior*
-desde el mismo punto para comparar. Los retoques se guardan: si volvés a mezclar el tema, se mantienen.
+**2 · Mezclar y masterizar.** Con la carpeta de temas elegida, tocá *Mezclar todos los temas*. La
+lista muestra el estado de cada tema (en espera, mezclando, listo) y abajo se ve el avance. Lo de
+entrada (estilo Natural) ya suena bien; estilo, volumen, afinación, samples y tema de referencia
+están en *Opciones avanzadas*.
 
-Cualquier trabajo largo se puede frenar con **✖ Cancelar**.
+**3 · Escuchar y retocar.** Elegí un tema, escuchá la versión *Actual* y la *Anterior* desde el
+mismo punto, y ajustá voz, coros, guitarras, bajo, batería, reverb, *sacar sala* y *presencia*.
+*Aplicar retoque* tarda segundos. Si en un tema canta otro integrante, elegí ahí la **voz principal**;
+si una voz quedó silenciada por no cantar, tildala para que suene.
 
 ## Estilos
 
