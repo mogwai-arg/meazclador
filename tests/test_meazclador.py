@@ -237,7 +237,10 @@ def test_mezcla_punk(tmp_path):
     assert "ampli británico" in notas["08_Guitarra_DI.wav"]
     assert "ya viene de un ampli" in notas["05_Gtr_L.wav"]
     assert "Distorsión en paralelo" in notas["04_Bajo.wav"]
-    assert "slapback" in notas["07_Voz.wav"]
+    voz = next(p for p in res.pistas if p.nombre == "07_Voz.wav")
+    assert voz.eco and voz.seco is not None and voz.sacar_sala > 0
+    assert any("slapback" in n for n in res.notas_generales)
+    assert any(n.startswith("Sacar sala") for n in res.notas_generales)
 
 
 def test_fragmento_de_sesion(tmp_path):
@@ -358,14 +361,20 @@ def test_sacar_sala_baja_la_cola_y_no_el_directo():
         seco[k * sr: k * sr + n] = rng.standard_normal(n) * np.hanning(n) * 0.3
     cola = rng.standard_normal(2 * sr) * np.exp(-np.arange(2 * sr) / sr * 3 * np.log(10) / 0.8) * 0.03
     sala = (seco + fftconvolve(seco, cola)[: len(seco)]).astype(np.float32)[None, :]
-    seca = desreverberar(sala, 0.6)
+    seca = desreverberar(sala, 1.0)
 
     def nivel(x, a, b):
         return 10 * np.log10(np.mean(x[0][int(a * sr): int(b * sr)] ** 2))
 
+    def graves(x):
+        espectro = np.abs(np.fft.rfft(x[0][2 * sr: int(2.2 * sr)])) ** 2
+        f = np.fft.rfftfreq(int(0.2 * sr), 1 / sr)
+        return 10 * np.log10(espectro[(f > 50) & (f < 200)].sum())
+
     assert seca.shape == sala.shape and np.isfinite(seca).all()
-    assert nivel(seca, 2.0, 2.2) - nivel(sala, 2.0, 2.2) > -3.5  # el sonido directo casi no cambia
-    assert nivel(seca, 2.3, 2.8) - nivel(sala, 2.3, 2.8) < -5  # la habitación baja bastante
+    assert nivel(seca, 2.0, 2.2) - nivel(sala, 2.0, 2.2) > -1.5  # el sonido directo casi no cambia
+    assert nivel(seca, 2.3, 2.8) - nivel(sala, 2.3, 2.8) < -3.5  # la habitación baja
+    assert abs(graves(seca) - graves(sala)) < 0.5  # el cuerpo (graves) no se toca: no queda 'latoso'
 
 
 def test_retoques_mueven_el_balance():
@@ -397,7 +406,8 @@ def test_retocar_una_mezcla_guardada(tmp_path):
     demo.main(tmp_path / "tema")
     assert cli(["mezclar", str(tmp_path / "tema"), "--estilo", "punk"]) == 0
     mezcla = tmp_path / "tema" / "mezcla"
-    assert (mezcla / "proyecto.json").is_file() and len(list((mezcla / "pistas_procesadas").glob("*.flac"))) == 7
+    procesadas = [f for f in (mezcla / "pistas_procesadas").glob("*.flac") if not f.stem.endswith("_seca")]
+    assert (mezcla / "proyecto.json").is_file() and len(procesadas) == 7
     antes = (mezcla / "master.wav").read_bytes()
 
     assert cli(["retocar", str(tmp_path / "tema"), "--voz", "3", "--reverb", "0", "--presencia", "0.9"]) == 0
@@ -485,6 +495,8 @@ def test_pestana_retocar(tmp_path, monkeypatch):
         p.buscar_mezclas()
         assert p.tema.get() == "01_Help"
         assert p.vars["presencia"].get() == pytest.approx(0.6)  # la del estilo punk
+        assert p.vars["sala"].get() == pytest.approx(1.0)
+        assert list(p.combo_voz["values"]) == ["07_Voz.wav"] and p.voz_principal.get() == "07_Voz.wav"
         p.vars["voz"].set(2.5)
         p.vars["reverb"].set(0.5)
         p.aplicar()
@@ -535,14 +547,15 @@ def test_detecta_voz_principal_cuando_cambia_en_un_tema():
     # Tema normal: los nombres coinciden con lo que se canta, no se toca nada.
     pistas = [Pista("Voz.wav", principal, rol="voz"), Pista("Coro 1.wav", coro1, rol="coros"),
               Pista("Coro 2.wav", coro2, rol="coros")]
-    assert elegir_voz_principal(pistas) is None
+    cambio, explicacion = elegir_voz_principal(pistas)
+    assert not cambio and "Cuánto canta cada pista" in explicacion  # siempre explica la decisión
     assert [p.rol for p in pistas] == ["voz", "coros", "coros"]
 
     # Tema 10: el que canta todo está en la pista 'Coro 1' y la 'Voz' hace los coros.
     pistas = [Pista("Voz.wav", coro2, rol="voz"), Pista("Coro 1.wav", principal, rol="coros"),
               Pista("Coro 2.wav", coro1, rol="coros")]
-    explicacion = elegir_voz_principal(pistas)
-    assert explicacion and "Coro 1.wav" in explicacion
+    cambio, explicacion = elegir_voz_principal(pistas)
+    assert cambio and "Coro 1.wav" in explicacion
     assert [p.rol for p in pistas] == ["coros", "voz", "coros"]
     assert "VOZ PRINCIPAL" in " ".join(pistas[1].notas)
 
@@ -562,3 +575,82 @@ def test_mezcla_con_voces_intercambiadas(tmp_path):
     assert roles["Coro 1.wav"] == ("voz", 0.0)  # la principal va al centro
     assert roles["Voz.wav"][0] == "coros" and roles["Voz.wav"][1] != 0.0  # el coro, a un costado
     assert any("Voz principal detectada" in n for n in res.notas_generales)
+
+
+def test_elegir_voz_principal_a_mano(tmp_path):
+    import json
+
+    import soundfile as sf
+
+    from meazclador.cli import main as cli
+
+    principal, coro1, coro2 = _voces_de_banda()
+    # Un poco de canto en los coros también: la detección automática no se anima a cambiar.
+    coro2 = coro2.copy()
+    coro2[:, : 48000 * 30] += principal[:, : 48000 * 30] * 0.9
+    tema = tmp_path / "10_Help"
+    tema.mkdir()
+    for nombre, audio in (("Voz.wav", coro2), ("Coro 1.wav", principal), ("Coro 2.wav", coro1)):
+        sf.write(tema / nombre, audio[0], 48000)
+    assert cli(["mezclar", str(tema), "--estilo", "punk", "--afinar", "0"]) == 0
+
+    def roles():
+        datos = json.loads((tema / "mezcla" / "proyecto.json").read_text(encoding="utf-8"))
+        return {d["nombre"]: (d["rol"], d["pan"]) for d in datos["pistas"]}, datos["notas"]
+
+    antes, notas = roles()
+    assert antes["Voz.wav"][0] == "voz"
+    assert any("Cuánto canta cada pista" in n for n in notas)  # el informe explica por qué
+
+    assert cli(["retocar", str(tema), "--voz-principal", "Coro 1"]) == 0
+    despues, notas = roles()
+    assert despues["Coro 1.wav"] == ("voz", 0.0)
+    assert despues["Voz.wav"][0] == "coros" and despues["Voz.wav"][1] != 0.0
+    assert "Voz principal elegida a mano: 'Coro 1.wav'." in notas
+    assert "voz principal 'Coro 1'" in (tema / "mezcla" / "informe.txt").read_text(encoding="utf-8")
+
+    # Volver a mezclar respeta la elección.
+    assert cli(["mezclar", str(tema), "--estilo", "punk", "--afinar", "0"]) == 0
+    assert roles()[0]["Coro 1.wav"][0] == "voz"
+
+
+def test_control_de_sala(tmp_path):
+    from meazclador import demo
+    from meazclador.cli import main as cli
+
+    demo.main(tmp_path / "tema")
+    assert cli(["mezclar", str(tmp_path / "tema"), "--estilo", "punk"]) == 0
+    mezcla = tmp_path / "tema" / "mezcla"
+    assert list((mezcla / "pistas_procesadas").glob("*_seca.flac"))
+    assert cli(["retocar", str(tmp_path / "tema"), "--sala", "0"]) == 0
+    original = (mezcla / "master.wav").read_bytes()
+    informe = (mezcla / "informe.txt").read_text(encoding="utf-8")
+    assert "sacar sala 0%" in informe and "07_Voz 0%" in informe  # la habitación original
+    assert cli(["retocar", str(tmp_path / "tema"), "--sala", "150"]) == 0
+    assert (mezcla / "master.wav").read_bytes() != original
+    assert "sacar sala 150%" in (mezcla / "informe.txt").read_text(encoding="utf-8")
+
+
+def test_eq_de_master_corrige_sonido_latoso():
+    from pedalboard import HighShelfFilter, PeakFilter, Pedalboard
+
+    from meazclador.master import balance_tonal, perfil_objetivo
+
+    sr = 48000
+    rng = np.random.default_rng(2)
+    # Ruido con la pendiente de un disco típico (-4.5 dB/oct) ...
+    espectro = np.fft.rfft(rng.standard_normal(sr * 10))
+    f = np.fft.rfftfreq(sr * 10, 1 / sr)
+    espectro *= 10 ** (-4.5 * np.log2(np.maximum(f, 20) / 1000) / 20)
+    disco = np.fft.irfft(espectro)[None, :].astype(np.float32)
+    disco /= np.max(np.abs(disco)) * 4
+    # ... arruinado como el máster 'latoso': +4 dB en 2-5 kHz y sin aire arriba de 8 kHz.
+    latoso = Pedalboard([PeakFilter(cutoff_frequency_hz=3500, gain_db=4, q=1.0),
+                         HighShelfFilter(cutoff_frequency_hz=8000, gain_db=-6, q=0.7)])(disco, sr)
+    objetivo, _ = perfil_objetivo(None)
+    _, notas = balance_tonal(latoso, objetivo)
+    texto = " ".join(notas)
+    assert "presencia (4000 Hz) -" in texto  # baja la lata
+    assert "brillo (8000 Hz) +" in texto and "aire (16000 Hz) +" in texto  # devuelve el aire
+    _, notas_disco = balance_tonal(disco, objetivo)
+    assert len(notas_disco) <= 2  # un disco ya equilibrado casi no se toca

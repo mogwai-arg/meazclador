@@ -85,6 +85,10 @@ def cmd_retocar(args) -> int:
             setattr(retoques, grupo, getattr(args, grupo))
     if args.reverb is not None:
         retoques.reverb = args.reverb / 100
+    if args.sala is not None:
+        retoques.sala = args.sala / 100
+    if args.voz_principal is not None:
+        retoques.voz_principal = None if args.voz_principal.lower() in ("", "auto", "automatico") else args.voz_principal
     if args.presencia is not None:
         retoques.presencia = args.presencia
     if args.lufs is not None:
@@ -178,6 +182,11 @@ def main(argv: list[str] | None = None) -> int:
         pr.add_argument(f"--{grupo}", type=float, metavar="DB", help=f"subir/bajar {grupo} en dB (ej: +2, -1.5)")
     pr.add_argument("--reverb", type=float, metavar="%", help="cantidad de reverb: 0 = nada, 100 = la del estilo")
     pr.add_argument("--presencia", type=float, help="0..1: cuánto trae todo adelante el máster")
+    pr.add_argument("--sala", type=float, metavar="%",
+                    help="sacar sala: 0 = la habitación original, 100 = lo del estilo, 150 = más seco")
+    pr.add_argument("--voz-principal", metavar="PISTA",
+                    help="qué pista es la voz principal en este tema (ej: 'Coro 1.wav'); 'auto' = automático. "
+                         "Vuelve a procesar sólo las voces")
     pr.add_argument("--lufs", type=float, help="volumen final")
     pr.add_argument("--desde-cero", action="store_true", help="olvidar los retoques anteriores")
     pr.set_defaults(func=cmd_retocar)

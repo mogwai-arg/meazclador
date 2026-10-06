@@ -13,9 +13,11 @@ import soundfile as sf
 from pedalboard import Compressor, Pedalboard, Reverb
 
 from .afinacion import afinar
-from .analisis import GRUPO_BATERIA, Pista, analizar, elegir_voz_principal, espectro, polaridad_invertida
+from .analisis import (GRUPO_BATERIA, ROLES_VOZ, Pista, analizar, elegir_voz_principal, espectro,
+                       forzar_voz_principal, polaridad_invertida)
 from .audio import SR_TRABAJO, Cancelado, a_estereo, cargar, desde_db, guardar, igualar_largo, nivel_activo, rms_corto
 from .dinamica import filtro_paso_alto, filtro_paso_bajo
+from .efectos import eco_corto
 from .master import masterizar
 from .procesos import RECETAS, RECETAS_PUNK, procesar_pista
 
@@ -102,6 +104,8 @@ class Retoques:
     bateria: float = 0.0
     otros: float = 0.0
     reverb: float = 1.0  # 0 = nada, 1 = lo que eligió el estilo, 2 = el doble
+    sala: float = 1.0  # sacar sala: 0 = la habitación original, 1 = lo del estilo, 1.5 = más seco
+    voz_principal: str | None = None  # pista elegida a mano como voz principal (None = automático)
     presencia: float | None = None  # 0..1; None = lo que diga el estilo
     lufs: float | None = None  # None = lo que diga el estilo (u opciones)
 
@@ -115,6 +119,10 @@ class Retoques:
         partes = [f"{g} {getattr(self, g):+.1f} dB" for g in GRUPOS_RETOQUE if getattr(self, g)]
         if self.reverb != 1.0:
             partes.append(f"reverb {self.reverb:.0%}")
+        if self.sala != 1.0:
+            partes.append(f"sacar sala {self.sala:.0%}")
+        if self.voz_principal:
+            partes.append(f"voz principal '{self.voz_principal}'")
         if self.presencia is not None:
             partes.append(f"presencia {self.presencia:.0%}")
         if self.lufs is not None:
@@ -141,6 +149,7 @@ class Proyecto:
     lufs: float | None
     referencia: Path | None
     notas: list[str] = field(default_factory=list)
+    opciones: dict = field(default_factory=dict)  # con qué opciones se procesó (para reprocesar voces)
 
 
 @dataclass
@@ -224,7 +233,35 @@ def listar_pistas(carpeta: Path) -> list[Path]:
     return sorted(p for p in carpeta.iterdir() if p.suffix.lower() in EXTENSIONES)
 
 
-def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: False) -> Proyecto:
+_RUTAS_OPCIONES = ("referencia", "sample_bombo", "sample_caja")
+
+
+def _opciones_a_dict(opciones: Opciones) -> dict:
+    return {k: (str(v) if isinstance(v, Path) else v) for k, v in asdict(opciones).items()}
+
+
+def _opciones_desde(datos: dict) -> Opciones:
+    valores = {k: (Path(v) if k in _RUTAS_OPCIONES and v else v) for k, v in datos.items()
+               if k in Opciones.__dataclass_fields__}
+    return Opciones(**valores)
+
+
+def _procesar_voces(pistas: list[Pista], opciones: Opciones, avisar, cancelar=lambda: False) -> None:
+    estilo = ESTILOS[opciones.estilo]
+    fuerza = estilo.afinar if opciones.afinar is None else opciones.afinar
+    if fuerza <= 0:
+        return
+    for p in pistas:
+        if p.rol in ROLES_VOZ:
+            if cancelar():
+                raise Cancelado()
+            avisar(f"Afinando {p.nombre}...")
+            p.audio, resumen = afinar(p.audio, fuerza, opciones.tonalidad, tolerancia_cents=estilo.tolerancia_cents)
+            p.notas.append(resumen)
+
+
+def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: False,
+             voz_principal: str | None = None) -> Proyecto:
     """La parte lenta: analiza, afina y procesa cada pista. El resultado se puede guardar y retocar."""
     archivos = listar_pistas(carpeta)
     if not archivos:
@@ -233,17 +270,19 @@ def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: F
     if opciones.estilo not in ESTILOS:
         raise ValueError(f"Estilo desconocido '{opciones.estilo}'. Opciones: {', '.join(ESTILOS)}")
     estilo = ESTILOS[opciones.estilo]
-    fuerza = estilo.afinar if opciones.afinar is None else opciones.afinar
     samples = {"bombo": opciones.sample_bombo, "caja": opciones.sample_caja}
 
     avisar(f"Cargando {len(archivos)} pistas...")
     audios = igualar_largo([cargar(a) for a in archivos])
     pistas = [analizar(a.name, x) for a, x in zip(archivos, audios)]
     notas: list[str] = []
-    cambio = elegir_voz_principal(pistas)
-    if cambio:
-        avisar(cambio)
-        notas.append(cambio)
+    if voz_principal:
+        nota = forzar_voz_principal(pistas, voz_principal)
+    else:
+        _, nota = elegir_voz_principal(pistas)
+    if nota:
+        avisar(nota)
+        notas.append(nota)
 
     # Fase: un micrófono en contrafase con los overheads le roba graves y pegada a la batería.
     overheads = [p for p in pistas if p.rol == "overheads"]
@@ -253,15 +292,7 @@ def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: F
                 p.audio = -p.audio
                 p.notas.append("Polaridad invertida respecto de los overheads: corregida (recupera graves y pegada).")
 
-    if fuerza > 0:
-        for p in pistas:
-            if p.rol in ("voz", "coros"):
-                if cancelar():
-                    raise Cancelado()
-                avisar(f"Afinando {p.nombre}...")
-                p.audio, resumen = afinar(p.audio, fuerza, opciones.tonalidad,
-                                          tolerancia_cents=estilo.tolerancia_cents)
-                p.notas.append(resumen)
+    _procesar_voces(pistas, opciones, avisar, cancelar)
 
     extra = _desenmascarar(pistas)
     _asignar_paneos(pistas)
@@ -270,7 +301,7 @@ def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: F
             raise Cancelado()
         avisar(f"Procesando {p.nombre} ({p.rol})...")
         p.audio = procesar_pista(p, extra.get(i), estilo.recetas, samples, opciones.guitarras)
-    return Proyecto(pistas, opciones.estilo, opciones.lufs, opciones.referencia, notas)
+    return Proyecto(pistas, opciones.estilo, opciones.lufs, opciones.referencia, notas, _opciones_a_dict(opciones))
 
 
 def combinar(proyecto: Proyecto, retoques: Retoques | None = None, avisar=print) -> Resultado:
@@ -289,8 +320,16 @@ def combinar(proyecto: Proyecto, retoques: Retoques | None = None, avisar=print)
     largo = max(p.audio.shape[1] for p in pistas)
     bateria, resto = [], []
     envio = np.zeros((2, largo), dtype=np.float32)
+    secas = []
     for p in pistas:
-        audio = _panear(p.audio, p.pan)
+        audio = p.audio
+        if p.seco is not None:
+            cuanto = float(np.clip(p.sacar_sala * retoques.sala, 0, 1.5))
+            audio = audio + cuanto * (p.seco - audio)  # mezcla entre la pista con sala y la seca
+            secas.append(f"{Path(p.nombre).stem} {cuanto:.0%}")
+        if p.eco:
+            audio = eco_corto(audio, *p.eco)
+        audio = _panear(audio, p.pan)
         # Varias pistas del mismo instrumento comparten el lugar en la mezcla.
         objetivo = (NIVEL_VOZ + BALANCE.get(p.rol, -6.0) + estilo.balance.get(p.rol, 0.0)
                     - 10 * np.log10(cuenta[p.rol]) + retoques.db(p.rol))
@@ -300,6 +339,10 @@ def combinar(proyecto: Proyecto, retoques: Retoques | None = None, avisar=print)
         envio += a_estereo(audio) * p.envio_reverb * retoques.reverb
         (bateria if p.rol in GRUPO_BATERIA else resto).append(audio)
 
+    if secas:
+        generales.append("Sacar sala (menos habitación, más cerca): " + ", ".join(secas) + ".")
+    if any(p.eco for p in pistas):
+        generales.append("Eco corto (slapback) en voces: suenan grandes sin una reverb que las aleje.")
     partes = list(resto)
     if bateria:
         bus, nota = _bus_bateria(bateria, estilo.paralela_db)
@@ -339,14 +382,20 @@ def guardar_proyecto(proyecto: Proyecto, destino: Path) -> None:
     """Guarda las pistas procesadas (FLAC 24 bits) para poder retocar la mezcla en segundos."""
     carpeta = destino / CARPETA_PISTAS
     carpeta.mkdir(parents=True, exist_ok=True)
-    datos = {"version": 1, "estilo": proyecto.estilo, "lufs": proyecto.lufs,
+    datos = {"version": 2, "estilo": proyecto.estilo, "lufs": proyecto.lufs,
              "referencia": str(proyecto.referencia) if proyecto.referencia else None,
-             "notas": proyecto.notas, "pistas": []}
+             "notas": proyecto.notas, "opciones": proyecto.opciones, "pistas": []}
     for i, p in enumerate(proyecto.pistas):
         archivo = f"{i:02d}_{Path(p.nombre).stem}.flac"
         sf.write(str(carpeta / archivo), (p.audio * desde_db(MARGEN_GUARDADO_DB)).T, SR_TRABAJO, subtype="PCM_24")
-        datos["pistas"].append({"archivo": archivo, "nombre": p.nombre, "rol": p.rol, "rol_por": p.rol_por,
-                                "pan": p.pan, "envio_reverb": p.envio_reverb, "notas": p.notas})
+        seco = None
+        if p.seco is not None:
+            seco = f"{i:02d}_{Path(p.nombre).stem}_seca.flac"
+            sf.write(str(carpeta / seco), (p.seco * desde_db(MARGEN_GUARDADO_DB)).T, SR_TRABAJO, subtype="PCM_24")
+        datos["pistas"].append({"archivo": archivo, "seco": seco, "nombre": p.nombre, "rol": p.rol,
+                                "rol_por": p.rol_por, "pan": p.pan, "envio_reverb": p.envio_reverb,
+                                "sacar_sala": p.sacar_sala, "eco": list(p.eco) if p.eco else None,
+                                "notas": p.notas})
     (destino / ARCHIVO_PROYECTO).write_text(json.dumps(datos, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -356,21 +405,59 @@ def cargar_proyecto(destino: Path) -> Proyecto:
         raise FileNotFoundError(f"No hay una mezcla para retocar en {destino}. Mezclá el tema primero.")
     datos = json.loads(ruta.read_text(encoding="utf-8"))
     pistas = []
+    def leer(archivo: str) -> np.ndarray:
+        audio, _ = sf.read(str(destino / CARPETA_PISTAS / archivo), dtype="float32", always_2d=True)
+        return audio.T * desde_db(-MARGEN_GUARDADO_DB)
+
     for d in datos["pistas"]:
-        audio, _ = sf.read(str(destino / CARPETA_PISTAS / d["archivo"]), dtype="float32", always_2d=True)
-        pistas.append(Pista(nombre=d["nombre"], audio=audio.T * desde_db(-MARGEN_GUARDADO_DB), rol=d["rol"],
-                            rol_por=d["rol_por"], notas=d["notas"], pan=d["pan"], envio_reverb=d["envio_reverb"]))
+        pistas.append(Pista(nombre=d["nombre"], audio=leer(d["archivo"]), rol=d["rol"], rol_por=d["rol_por"],
+                            notas=d["notas"], pan=d["pan"], envio_reverb=d["envio_reverb"],
+                            seco=leer(d["seco"]) if d.get("seco") else None,
+                            sacar_sala=d.get("sacar_sala", 0.0), eco=tuple(d["eco"]) if d.get("eco") else None))
     referencia = Path(datos["referencia"]) if datos.get("referencia") else None
-    return Proyecto(pistas, datos["estilo"], datos.get("lufs"), referencia, datos.get("notas", []))
+    return Proyecto(pistas, datos["estilo"], datos.get("lufs"), referencia, datos.get("notas", []),
+                    datos.get("opciones", {"estilo": datos["estilo"]}))
+
+
+def cambiar_voz_principal(proyecto: Proyecto, destino: Path, nombre: str, avisar=print) -> None:
+    """Vuelve a procesar sólo las pistas de voz, con otra como principal. Lo demás queda como estaba."""
+    vocales = [p for p in proyecto.pistas if p.rol in ROLES_VOZ]
+    actual = next((p.nombre for p in vocales if p.rol == "voz"), None)
+    if actual == nombre:
+        return
+    opciones = _opciones_desde(proyecto.opciones)
+    estilo = ESTILOS[opciones.estilo]
+    origen = destino.parent  # la carpeta del tema, con las pistas originales
+    largo = max(p.audio.shape[1] for p in proyecto.pistas)
+    nuevas = []
+    for p in vocales:
+        ruta = origen / p.nombre
+        if not ruta.is_file():
+            raise FileNotFoundError(f"Para cambiar la voz principal necesito la pista original: {ruta}")
+        avisar(f"Cargando {p.nombre}...")
+        audio = cargar(ruta)[:, :largo]
+        nuevas.append(analizar(p.nombre, np.pad(audio, ((0, 0), (0, largo - audio.shape[1])))))
+    nota = forzar_voz_principal(nuevas, nombre)
+    avisar(nota)
+    _procesar_voces(nuevas, opciones, avisar)
+    samples = {"bombo": opciones.sample_bombo, "caja": opciones.sample_caja}
+    for q in nuevas:
+        avisar(f"Procesando {q.nombre} ({q.rol})...")
+        q.audio = procesar_pista(q, None, estilo.recetas, samples, opciones.guitarras)
+    _asignar_paneos(nuevas)
+    reemplazo = {q.nombre: q for q in nuevas}
+    proyecto.pistas = [reemplazo.get(p.nombre, p) for p in proyecto.pistas]
+    proyecto.notas = [n for n in proyecto.notas if not n.startswith(("Voz principal", "Cuánto canta"))] + [nota]
+    guardar_proyecto(proyecto, destino)
 
 
 def mezclar_y_guardar(carpeta: Path, opciones: Opciones, destino: Path, avisar=print,
                       cancelar=lambda: False) -> list[Path]:
     """Mezcla un tema, guarda las pistas procesadas y aplica los retoques que ya existieran."""
-    proyecto = procesar(carpeta, opciones, avisar, cancelar)
+    retoques = Retoques.cargar(destino / ARCHIVO_RETOQUES)
+    proyecto = procesar(carpeta, opciones, avisar, cancelar, voz_principal=retoques.voz_principal)
     destino.mkdir(parents=True, exist_ok=True)
     guardar_proyecto(proyecto, destino)
-    retoques = Retoques.cargar(destino / ARCHIVO_RETOQUES)
     return exportar(combinar(proyecto, retoques, avisar), destino)
 
 
@@ -381,6 +468,8 @@ def retocar(destino: Path, retoques: Retoques, avisar=print) -> list[Path]:
     """
     avisar("Cargando la mezcla guardada...")
     proyecto = cargar_proyecto(destino)
+    if retoques.voz_principal:
+        cambiar_voz_principal(proyecto, destino, retoques.voz_principal, avisar)
     if (destino / "master.wav").is_file():
         shutil.copyfile(destino / "master.wav", destino / "master_anterior.wav")
     retoques.guardar(destino / ARCHIVO_RETOQUES)

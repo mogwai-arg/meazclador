@@ -23,7 +23,7 @@ from pedalboard import (
 from .analisis import Pista
 from .audio import SR_TRABAJO, desde_db, nivel_activo, rms_corto
 from .dinamica import de_esser, expansor, saturacion
-from .efectos import (amplificador, bajo_gruñon, cargar_sample, desreverberar, eco_corto, es_guitarra_directa,
+from .efectos import (amplificador, bajo_gruñon, cargar_sample, desreverberar, es_guitarra_directa,
                       realzar_ataque, reforzar_con_sample, sample_bombo, sample_caja)
 
 NIVEL_TRABAJO_DB = -18.0
@@ -129,10 +129,10 @@ def _con(rol: str, **cambios) -> Receta:
 # Estilo punk (Ramones): crudo, medios al frente, pared de guitarras, batería que pega.
 RECETAS_PUNK: dict[str, Receta] = {
     **RECETAS,
-    "bombo": _con("bombo", eq=[("pico", 60, 3.0, 1.0), ("pico", 380, -5.0, 1.4), ("pico", 3500, 4.0, 1.0)],
+    "bombo": _con("bombo", eq=[("pico", 60, 3.0, 1.0), ("pico", 380, -5.0, 1.4), ("pico", 3500, 2.5, 1.2)],
                   compresion=[(8, 5.0, 10, 80)], sample="bombo", mezcla_sample=0.45, ataque_db=4.0, saturacion=0.25,
                   sacar_sala=0.4),
-    "caja": _con("caja", eq=[("pico", 200, 3.0, 1.2), ("pico", 900, -2.0, 1.5), ("agudos", 5000, 3.0, 0.7)],
+    "caja": _con("caja", eq=[("pico", 200, 3.0, 1.2), ("pico", 900, -2.0, 1.5), ("agudos", 7000, 2.5, 0.7)],
                  compresion=[(8, 5.0, 5, 100)], sample="caja", mezcla_sample=0.4, ataque_db=4.0,
                  saturacion=0.3, reverb=0.10, sacar_sala=0.4),
     "toms": _con("toms", ataque_db=3.0, saturacion=0.2, sacar_sala=0.4),
@@ -142,7 +142,7 @@ RECETAS_PUNK: dict[str, Receta] = {
     "guitarra": _con("guitarra", paso_alto=100, paso_bajo=9000,
                      eq=[("pico", 400, -1.5, 1.0), ("pico", 1800, 1.5, 1.0)],
                      compresion=[(4, 2.0, 30, 150)], amplificador=0.8, reverb=0.03, sacar_sala=0.4),
-    "voz": _con("voz", paso_alto=100, eq=[("pico", 250, -3.0, 1.0), ("pico", 2500, 3.0, 0.9), ("agudos", 9000, 1.5, 0.7)],
+    "voz": _con("voz", paso_alto=100, eq=[("pico", 250, -2.0, 1.0), ("pico", 3000, 1.5, 1.0), ("agudos", 9000, 2.5, 0.7)],
                 compresion=[(10, 4.0, 5, 80), (5, 3.0, 1, 50)], de_esser_max_db=4.0, saturacion=0.3,
                 eco=(110, -11.0), reverb=0.05, sacar_sala=0.6),
     "coros": _con("coros", compresion=[(12, 6.0, 3, 80)], saturacion=0.3, de_esser_max_db=4.0,
@@ -174,11 +174,6 @@ def procesar_pista(
     receta = recetas.get(pista.rol, recetas["otros"])
     audio, g = nivelar(pista.audio)
     pista.notas.append(f"Nivel de entrada ajustado {g:+.1f} dB para trabajar con margen.")
-
-    if receta.sacar_sala:
-        audio = desreverberar(audio, receta.sacar_sala)
-        pista.notas.append(f"Sacar sala {receta.sacar_sala:.0%}: se atenúa la reverberación de la habitación "
-                           "que captó el micrófono (suena más cerca y seco).")
 
     if receta.expansor:
         audio = expansor(audio)
@@ -250,10 +245,13 @@ def procesar_pista(
         audio = saturacion(audio, receta.saturacion)
         pista.notas.append("Saturación suave: más cuerpo y presencia sin subir el volumen.")
 
-    if receta.eco:
-        audio = eco_corto(audio, *receta.eco)
-        pista.notas.append(f"Eco corto (slapback) de {receta.eco[0]:.0f} ms: la voz suena grande sin reverb lavada.")
-
     pista.envio_reverb = receta.reverb
     audio, _ = nivelar(audio)
+
+    # Sacar sala y eco se aplican al combinar, así se pueden retocar sin volver a procesar.
+    if receta.sacar_sala:
+        pista.seco = desreverberar(audio, 1.0)
+        pista.sacar_sala = receta.sacar_sala
+    if receta.eco:
+        pista.eco = receta.eco
     return audio

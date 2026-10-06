@@ -10,40 +10,53 @@ from .analisis import espectro
 from .audio import SR_TRABAJO, desde_db, lufs, pico_real, rms_corto
 from .dinamica import filtro_paso_alto, saturacion
 
-# (nombre, Hz desde, Hz hasta, filtro que corrige esa zona)
-BANDAS = [
-    ("graves", 40, 120, ("bajos", 110, 0.7)),
-    ("barro", 200, 500, ("pico", 330, 0.9)),
-    ("presencia", 2000, 5000, ("pico", 3200, 0.8)),
-    ("aire", 8000, 16000, ("agudos", 10000, 0.7)),
-]
+# Bandas de una octava para comparar y corregir el balance tonal del máster.
+OCTAVAS = [63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+NOMBRES_OCTAVA = {63: "sub-graves", 125: "graves", 250: "cuerpo", 500: "medios-graves", 1000: "medios",
+                  2000: "medios-altos", 4000: "presencia", 8000: "brillo", 16000: "aire"}
+# Cuánto puede corregir como máximo cada banda (en los extremos se va con más cuidado).
+MAXIMO_OCTAVA = {63: 3.0, 16000: 2.5}
 
 
-def _perfil(f: np.ndarray, p_db: np.ndarray) -> dict[str, float]:
-    """Nivel de cada zona relativo a los medios (500 Hz-2 kHz)."""
+def _perfil(f: np.ndarray, p_db: np.ndarray) -> np.ndarray:
+    """Nivel de cada octava relativo a los medios (500 Hz-2 kHz)."""
     ref = p_db[(f >= 500) & (f < 2000)].mean()
-    return {n: float(p_db[(f >= a) & (f < b)].mean() - ref) for n, a, b, _ in BANDAS}
+    niveles = []
+    for fc in OCTAVAS:
+        sel = (f >= fc / np.sqrt(2)) & (f < fc * np.sqrt(2))
+        niveles.append(p_db[sel].mean() - ref)
+    return np.array(niveles)
 
 
-def perfil_objetivo(referencia: np.ndarray | None) -> tuple[dict[str, float], str]:
+def perfil_objetivo(referencia: np.ndarray | None) -> tuple[np.ndarray, str]:
     if referencia is not None:
         return _perfil(*espectro(referencia)), "el tema de referencia"
     # Curva típica de discos de rock/pop modernos: cae ~4.5 dB por octava.
-    f = np.linspace(20, 20000, 4000)
+    f = np.linspace(20, 20000, 20000)
     return _perfil(f, -4.5 * np.log2(f / 1000)), "una curva típica de discos de rock/pop"
 
 
-def balance_tonal(mezcla: np.ndarray, objetivo: dict[str, float], fuerza: float = 0.6, maximo: float = 3.0
+def balance_tonal(mezcla: np.ndarray, objetivo: np.ndarray, fuerza: float = 0.8, maximo: float = 4.0
                   ) -> tuple[list, list[str]]:
+    """EQ de máster por octavas: lleva cada banda hacia el objetivo (sin pasarse).
+
+    Detecta, por ejemplo, un exceso de 2-5 kHz (sonido 'latoso', de teléfono) y la falta de
+    aire arriba de 6 kHz, y los corrige a la vez.
+    """
     actual = _perfil(*espectro(mezcla))
+    difs = fuerza * (objetivo - actual)
     filtros, notas = [], []
-    for nombre, _, _, (tipo, hz, q) in BANDAS:
-        dif = float(np.clip((objetivo[nombre] - actual[nombre]) * fuerza, -maximo, maximo))
+    for fc, dif in zip(OCTAVAS, difs):
+        dif = float(np.clip(dif, -MAXIMO_OCTAVA.get(fc, maximo), MAXIMO_OCTAVA.get(fc, maximo)))
         if abs(dif) < 0.5:
             continue
-        clase = {"bajos": LowShelfFilter, "agudos": HighShelfFilter, "pico": PeakFilter}[tipo]
-        filtros.append(clase(cutoff_frequency_hz=hz, gain_db=dif, q=q))
-        notas.append(f"EQ de máster: {nombre} {dif:+.1f} dB (zona de {hz} Hz).")
+        if fc == OCTAVAS[0]:
+            filtros.append(LowShelfFilter(cutoff_frequency_hz=90, gain_db=dif, q=0.7))
+        elif fc == OCTAVAS[-1]:
+            filtros.append(HighShelfFilter(cutoff_frequency_hz=11000, gain_db=dif, q=0.7))
+        else:
+            filtros.append(PeakFilter(cutoff_frequency_hz=fc, gain_db=dif, q=1.4))
+        notas.append(f"EQ de máster: {NOMBRES_OCTAVA[fc]} ({fc} Hz) {dif:+.1f} dB.")
     return filtros, notas
 
 
@@ -84,16 +97,19 @@ def adelantar(audio: np.ndarray, presencia: float) -> np.ndarray:
 
     - Compresión paralela (estilo Nueva York): una copia muy comprimida mezclada por debajo sube
       los detalles y las colas cortas sin aplastar los golpes.
-    - Menos 'caja' (300-500 Hz, lo que hace sonar a habitación chica) y más presencia (2-5 kHz).
+    - Un poco menos de 'caja' (400 Hz, lo que suena a habitación chica), sin adelgazar: se
+      compensa con cuerpo en los graves, y el brillo va arriba (aire, 8 kHz), no en los
+      medios-altos de 2-4 kHz que hacen sonar 'latoso'.
     """
     r = rms_corto(audio)
     picos = float(np.percentile(r[r > -60], 90)) if np.any(r > -60) else -20.0
     aplastada = Pedalboard([Compressor(threshold_db=picos - 15, ratio=6, attack_ms=5, release_ms=100)])(
         audio, SR_TRABAJO)
-    aplastada = aplastada * desde_db(-8.0 + 4.0 * presencia)  # por debajo de la mezcla original
+    aplastada = aplastada * desde_db(-10.0 + 3.0 * presencia)  # por debajo de la mezcla: no aplastar todo
     tono = Pedalboard([
-        PeakFilter(cutoff_frequency_hz=400, gain_db=-2.5 * presencia, q=0.9),
-        PeakFilter(cutoff_frequency_hz=3000, gain_db=2.0 * presencia, q=0.7),
+        LowShelfFilter(cutoff_frequency_hz=120, gain_db=1.0 * presencia, q=0.7),
+        PeakFilter(cutoff_frequency_hz=400, gain_db=-1.2 * presencia, q=1.2),
+        HighShelfFilter(cutoff_frequency_hz=8000, gain_db=1.5 * presencia, q=0.7),
     ])
     salida = tono(audio + presencia * aplastada, SR_TRABAJO)
     return salida.astype(np.float32)

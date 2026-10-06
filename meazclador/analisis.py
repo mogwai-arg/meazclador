@@ -39,6 +39,10 @@ class Pista:
     resonancias: list[tuple[float, float]] = field(default_factory=list)  # (Hz, exceso dB)
     pan: float = 0.0
     envio_reverb: float = 0.0
+    # Lo que se decide al combinar (se puede retocar sin volver a procesar):
+    seco: np.ndarray | None = None  # la misma pista sin la sala de la habitación
+    sacar_sala: float = 0.0  # cuánto de la versión seca usar por defecto (0..1)
+    eco: tuple[float, float] | None = None  # slapback (ms, dB)
 
     @property
     def es_estereo(self) -> bool:
@@ -186,29 +190,51 @@ def actividad_de_canto(audio: np.ndarray, sr: int = SR_TRABAJO) -> float:
     return float(np.mean(canta))
 
 
-def elegir_voz_principal(pistas: list[Pista], margen: float = 1.3) -> str | None:
+ROLES_VOZ = ("voz", "coros")
+
+
+def elegir_voz_principal(pistas: list[Pista], margen: float = 1.3) -> tuple[bool, str | None]:
     """Detecta si en este tema una pista de coros hace de voz principal (y al revés).
 
     La voz principal canta casi todo el tema; los coros entran en algunas partes. Si la pista
     llamada coro canta claramente más (`margen` veces) que la llamada voz, se intercambian
-    los papeles. Devuelve una explicación si cambió algo, o None.
+    los papeles. Devuelve (cambió, explicación). La explicación siempre dice cuánto canta
+    cada pista, así se entiende la decisión.
     """
     voces = [p for p in pistas if p.rol == "voz"]
     coros = [p for p in pistas if p.rol == "coros"]
     if not voces or not coros:
-        return None
+        return False, None
     act = {id(p): actividad_de_canto(p.audio) for p in voces + coros}
+    detalle = ", ".join(f"'{p.nombre}' {act[id(p)]:.0%}" for p in voces + coros)
     principal = max(voces, key=lambda p: act[id(p)])
     candidato = max(coros, key=lambda p: act[id(p)])
     a_voz, a_coro = act[id(principal)], act[id(candidato)]
     if a_coro < 0.25 or a_coro < a_voz * margen or a_coro - a_voz < 0.1:
-        return None
-    for p in voces:
-        p.rol = "coros"
-        p.notas.append(f"En este tema canta {a_voz:.0%} del tiempo: se la trata como coro.")
-    candidato.rol = "voz"
-    candidato.notas.append(f"En este tema canta {a_coro:.0%} del tiempo (más que la voz, {a_voz:.0%}): "
-                           "se la trata como VOZ PRINCIPAL.")
-    return (f"Voz principal detectada: '{candidato.nombre}' canta {a_coro:.0%} del tema y "
-            f"'{principal.nombre}' {a_voz:.0%}, así que se intercambian los papeles. "
-            "Si está mal, renombrá los archivos de este tema.")
+        return False, (f"Cuánto canta cada pista de voz: {detalle}. Voz principal: '{principal.nombre}'. "
+                       "Si en este tema canta otra, elegila en la pestaña 3 · Retocar.")
+    _poner_voz_principal(pistas, candidato)
+    return True, (f"Voz principal detectada: '{candidato.nombre}' (cuánto canta cada pista: {detalle}). "
+                  "Si está mal, elegí la correcta en la pestaña 3 · Retocar.")
+
+
+def _poner_voz_principal(pistas: list[Pista], elegida: Pista) -> None:
+    for p in pistas:
+        if p.rol in ROLES_VOZ and p is not elegida and p.rol == "voz":
+            p.rol = "coros"
+            p.notas.append("En este tema hace coros: se la trata como coro.")
+    if elegida.rol != "voz":
+        elegida.rol = "voz"
+        elegida.notas.append("En este tema es la VOZ PRINCIPAL: se la trata como voz.")
+
+
+def forzar_voz_principal(pistas: list[Pista], nombre: str) -> str:
+    """El usuario eligió cuál pista es la voz principal en este tema."""
+    vocales = [p for p in pistas if p.rol in ROLES_VOZ]
+    elegida = next((p for p in vocales if p.nombre == nombre), None) or next(
+        (p for p in vocales if nombre.lower() in p.nombre.lower()), None)
+    if elegida is None:
+        nombres = ", ".join(p.nombre for p in vocales) or "ninguna"
+        raise ValueError(f"No encuentro la pista de voz '{nombre}'. Pistas de voz de este tema: {nombres}")
+    _poner_voz_principal(pistas, elegida)
+    return f"Voz principal elegida a mano: '{elegida.nombre}'."

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
 import soundfile as sf
 
-from .mezcla import ARCHIVO_PROYECTO, ARCHIVO_RETOQUES, Retoques
+from .analisis import ROLES_VOZ
+from .mezcla import ARCHIVO_PROYECTO, ARCHIVO_RETOQUES, ESTILOS, Retoques
 from .reproductor import Reproductor
 from .sesion import a_reloj, de_reloj
 
@@ -58,11 +60,23 @@ class PanelRetoque(ttk.Frame):
             self._deslizador(controles, fila, clave, texto, -6, 6, lambda v: f"{v:+.1f} dB")
         fila = len(CONTROLES_DB)
         self._deslizador(controles, fila, "reverb", "Reverb", 0, 2, lambda v: f"{v:.0%}", inicial=1.0)
-        self._deslizador(controles, fila + 1, "presencia", "Presencia del máster", 0, 1,
+        self._deslizador(controles, fila + 1, "sala", "Sacar sala", 0, 1.5,
+                         lambda v: f"{v:.0%}" + (" (habitación original)" if v < 0.05 else
+                                                 " (más seco)" if v > 1.05 else ""), inicial=1.0)
+        self._deslizador(controles, fila + 2, "presencia", "Presencia del máster", 0, 1,
                          lambda v: f"{v:.0%}" + (" (más adelante, de estudio)" if v >= 0.6 else ""), inicial=0.6)
 
+        voces = ttk.Frame(self)
+        voces.grid(row=6, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        ttk.Label(voces, text="Voz principal de este tema:").pack(side="left")
+        self.voz_principal = tk.StringVar()
+        self.combo_voz = ttk.Combobox(voces, textvariable=self.voz_principal, state="readonly", width=32)
+        self.combo_voz.pack(side="left", padx=6)
+        ttk.Label(voces, text="(cambiarla reprocesa sólo las voces)",
+                  foreground="gray").pack(side="left")
+
         escuchar = ttk.Frame(self)
-        escuchar.grid(row=4, column=0, columnspan=3, sticky="w")
+        escuchar.grid(row=7, column=0, columnspan=3, sticky="w")
         ttk.Label(escuchar, text="Escuchar desde:").pack(side="left")
         self.desde = tk.StringVar(value="0:30")
         ttk.Entry(escuchar, textvariable=self.desde, width=7).pack(side="left", padx=4)
@@ -72,7 +86,7 @@ class PanelRetoque(ttk.Frame):
         ttk.Button(escuchar, text="⏹ Parar", command=self.reproductor.parar).pack(side="left", padx=2)
 
         acciones = ttk.Frame(self)
-        acciones.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        acciones.grid(row=8, column=0, columnspan=3, sticky="w", pady=(10, 0))
         self.btn_aplicar = ttk.Button(acciones, text="🎚  Aplicar retoque", command=self.aplicar)
         self.btn_aplicar.pack(side="left")
         ttk.Button(acciones, text="↺ Volver a la mezcla automática", command=self.restablecer).pack(side="left", padx=8)
@@ -83,7 +97,7 @@ class PanelRetoque(ttk.Frame):
         etiqueta = tk.StringVar(value=formato(inicial))
 
         def cambio(_=None):
-            paso = 0.5 if clave in dict(CONTROLES_DB) else 0.05
+            paso = 0.5 if clave in dict(CONTROLES_DB) else 0.05  # dB de a medio; porcentajes de a 5 %
             var.set(round(var.get() / paso) * paso)
             etiqueta.set(formato(var.get()))
 
@@ -118,20 +132,20 @@ class PanelRetoque(ttk.Frame):
         for clave, _ in CONTROLES_DB:
             self.vars[clave].set(getattr(r, clave))
         self.vars["reverb"].set(r.reverb)
-        if r.presencia is not None:
-            self.vars["presencia"].set(r.presencia)
-        else:
-            import json
-
-            estilo = json.loads((destino / ARCHIVO_PROYECTO).read_text(encoding="utf-8"))["estilo"]
-            from .mezcla import ESTILOS
-
-            self.vars["presencia"].set(ESTILOS[estilo].presencia)
+        self.vars["sala"].set(r.sala)
+        proyecto = json.loads((destino / ARCHIVO_PROYECTO).read_text(encoding="utf-8"))
+        self.vars["presencia"].set(ESTILOS[proyecto["estilo"]].presencia if r.presencia is None else r.presencia)
+        vocales = [d for d in proyecto["pistas"] if d["rol"] in ROLES_VOZ]
+        self.combo_voz["values"] = [d["nombre"] for d in vocales]
+        actual = next((d["nombre"] for d in vocales if d["rol"] == "voz"), "")
+        self.voz_principal.set(actual)
+        self._voz_al_cargar = actual
 
     def restablecer(self) -> None:
         for clave, _ in CONTROLES_DB:
             self.vars[clave].set(0.0)
         self.vars["reverb"].set(1.0)
+        self.vars["sala"].set(1.0)
         destino = self.mezclas.get(self.tema.get())
         if destino is not None:
             (destino / ARCHIVO_RETOQUES).unlink(missing_ok=True)
@@ -148,9 +162,15 @@ class PanelRetoque(ttk.Frame):
         for clave, _ in CONTROLES_DB:
             args += [f"--{clave}", f"{self.vars[clave].get():.1f}"]
         args += ["--reverb", f"{self.vars['reverb'].get() * 100:.0f}",
+                 "--sala", f"{self.vars['sala'].get() * 100:.0f}",
                  "--presencia", f"{self.vars['presencia'].get():.2f}"]
+        if self.voz_principal.get() and self.voz_principal.get() != getattr(self, "_voz_al_cargar", ""):
+            args += ["--voz-principal", self.voz_principal.get()]
+            self.app._log(f"Cambio de voz principal a '{self.voz_principal.get()}': se vuelven a procesar las voces "
+                          "(tarda un poco más que un retoque común).\n")
 
         def listo():
+            self.cargar_retoques()
             self.app._log("Retoque aplicado. Escuchá 'Mezcla actual' y comparalo con 'Versión anterior'.\n")
             self.escuchar("master.wav")
 

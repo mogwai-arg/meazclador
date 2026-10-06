@@ -75,7 +75,7 @@ def amplificador(audio: np.ndarray, ganancia: float = 0.75, sr: int = SR_TRABAJO
         PeakFilter(cutoff_frequency_hz=1500, gain_db=2.0, q=0.9),
         HighpassFilter(cutoff_frequency_hz=80),
         PeakFilter(cutoff_frequency_hz=110, gain_db=3.0, q=1.2),   # golpe del parlante
-        PeakFilter(cutoff_frequency_hz=2600, gain_db=3.0, q=1.5),  # presencia del cono
+        PeakFilter(cutoff_frequency_hz=2600, gain_db=1.5, q=1.5),  # presencia del cono (sin que suene a lata)
         LowpassFilter(cutoff_frequency_hz=5500),
         LowpassFilter(cutoff_frequency_hz=5500),                   # caída fuerte, como un parlante real
         PeakFilter(cutoff_frequency_hz=8000, gain_db=-6.0, q=1.0),
@@ -207,34 +207,51 @@ def eco_corto(audio: np.ndarray, ms: float = 110, nivel_db: float = -12, sr: int
 # ---------------------------------------------------------------- sala
 
 
-def desreverberar(audio: np.ndarray, fuerza: float = 0.5, t60: float = 0.8, sr: int = SR_TRABAJO,
-                  piso_db: float = -18.0) -> np.ndarray:
+def desreverberar(audio: np.ndarray, fuerza: float = 1.0, t60: float = 0.8, sr: int = SR_TRABAJO,
+                  piso_db: float = -10.0) -> np.ndarray:
     """Saca 'sala': atenúa la cola de reverberación que el micrófono captó de la habitación.
 
-    Método de reverberación tardía (Lebart): la reverb de la sala en cada instante se estima
-    como el sonido de hace 50 ms, apagándose según el tiempo de reverberación (t60). Lo que
-    sobresale de esa estimación es el sonido directo y se conserva; el resto se baja hasta
-    `piso_db`. fuerza 0..1.
+    Método de reverberación tardía (Lebart): la reverb en cada instante se estima como el
+    sonido de hace 50 ms apagándose según el tiempo de reverberación (t60), y se resta.
+    Para que no suene metálico ni 'latoso':
+    - ventanas largas (43 ms) con buena resolución de frecuencia;
+    - resta moderada y un piso de -10 dB (nunca se vacía una frecuencia);
+    - la ganancia se suaviza entre frecuencias vecinas y en el tiempo, y vuelve rápido
+      cuando llega sonido directo pero baja despacio (sin 'burbujeo');
+    - debajo de ~250 Hz no se toca (es el cuerpo de los instrumentos).
+    fuerza 0..1.
     """
     if fuerza <= 0:
         return audio
-    nper, salto = 1024, 256
-    retraso = int(0.05 * sr / salto)  # 50 ms: el sonido directo y las primeras reflexiones quedan
+    nper, salto = 2048, 512
+    retraso = max(1, int(round(0.05 * sr / salto)))
     decaimiento = np.exp(-2 * (3 * np.log(10) / t60) * retraso * salto / sr)
     g_min = desde_db(piso_db) ** 2
-    bloque, margen = sr * 20, sr  # de a 20 s con 1 s de contexto: poca memoria y resultado idéntico
+    frecs = np.fft.rfftfreq(nper, 1 / sr)
+    # Peso por frecuencia: 0 debajo de 200 Hz, completo desde 500 Hz.
+    peso = np.clip((frecs - 200) / 300, 0, 1).astype(np.float32)[:, None]
+    liberacion = np.exp(-salto / sr / 0.08)  # la ganancia baja con ~80 ms, sube al instante
+    bloque, margen = sr * 20, sr  # de a 20 s con 1 s de contexto: poca memoria
     salida = np.zeros_like(audio)
     n = audio.shape[1]
     for inicio in range(0, n, bloque):
         a, b = max(0, inicio - margen), min(n, inicio + bloque + margen)
         _, _, z = stft(audio[:, a:b], sr, nperseg=nper, noverlap=nper - salto, axis=-1)
-        potencia = uniform_filter1d((np.abs(z) ** 2).astype(np.float32), 3, axis=-1)
+        potencia = (np.abs(z) ** 2).astype(np.float32)
+        potencia = uniform_filter1d(uniform_filter1d(potencia, 3, axis=-1), 3, axis=-2)
         tardia = np.zeros_like(potencia)
         tardia[..., retraso:] = decaimiento * potencia[..., :-retraso]
-        # Sobre-resta (hasta 3x la estimación): la sala real casi nunca se apaga tan parejo.
-        ganancia = np.clip(1 - 3 * fuerza * tardia / (potencia + 1e-12), g_min, 1)
-        ganancia = np.sqrt(uniform_filter1d(uniform_filter1d(ganancia, 3, axis=-1), 3, axis=-2))
+        ganancia = np.clip(1 - 1.5 * fuerza * tardia / (potencia + 1e-12), g_min, 1)
+        ganancia = uniform_filter1d(ganancia, 5, axis=-2)  # sin picos aislados entre frecuencias
+        suave = np.empty_like(ganancia)
+        actual = ganancia[..., 0]
+        for t in range(ganancia.shape[-1]):
+            nuevo = ganancia[..., t]
+            actual = np.where(nuevo > actual, nuevo, liberacion * actual + (1 - liberacion) * nuevo)
+            suave[..., t] = actual
+        ganancia = 1 - peso * (1 - np.sqrt(suave))
         _, y = istft(z * ganancia, sr, nperseg=nper, noverlap=nper - salto, time_axis=-1, freq_axis=-2)
         tramo = y[:, : b - a]
-        salida[:, inicio:min(n, inicio + bloque)] = tramo[:, inicio - a: inicio - a + min(bloque, n - inicio)]
+        cuanto = min(bloque, n - inicio)
+        salida[:, inicio:inicio + cuanto] = tramo[:, inicio - a: inicio - a + cuanto]
     return salida.astype(np.float32)

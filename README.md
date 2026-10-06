@@ -52,7 +52,9 @@ mezclarlos todos. Elegí el estilo y tocá *Mezclar y masterizar*. Cada tema que
 `tema/mezcla/master.wav` y además todos juntos en `temas/masters/`.
 
 **Pestaña 3 · Retocar.** Después de mezclar, subí o bajá voz, coros, guitarras, bajo y batería,
-la cantidad de reverb y la **presencia** del máster (cuánto trae todo adelante), y tocá *Aplicar*.
+la cantidad de reverb, **sacar sala** (0 % = la habitación original, 150 % = más seco) y la
+**presencia** del máster (cuánto trae todo adelante), y tocá *Aplicar*. Si en un tema canta otro
+integrante, elegí ahí la **voz principal**: se vuelven a procesar sólo las voces.
 No vuelve a procesar las pistas, así que tarda segundos. Escuchá *Mezcla actual* y *Versión anterior*
 desde el mismo punto para comparar. Los retoques se guardan: si volvés a mezclar el tema, se mantienen.
 
@@ -67,8 +69,8 @@ Cualquier trabajo largo se puede frenar con **✖ Cancelar**.
 | Batería | Compresión de bus y paralela | **Sampler**: cada golpe de bombo y caja se refuerza con un sample (incorporado o el tuyo), respetando la fuerza de cada golpe. Realce de ataque y compresión paralela más fuerte. |
 | Voz | Afinación opcional | **Sólo se corrigen las notas que se pasan de 35 cents**; el resto queda intacto, con su suciedad. Eco corto (slapback) en vez de reverb larga. |
 | Coros | Abiertos, con reverb | Abiertos, comprimidos y saturados (coro de pandilla). |
-| Sala | Se saca un poco de habitación a voces y coros | Se saca la habitación de voces, coros, guitarras y tambores (suena seco y cerca, de estudio) |
-| Máster | Presencia 30 % | Presencia 60 %: compresión paralela y menos "caja" en los medios-graves |
+| Sala | Se saca un poco de habitación a voces y coros | Se saca la habitación de voces, coros, guitarras y tambores, sin tocar los graves (retocable en la pestaña 3) |
+| Máster | EQ por octavas hacia la curva de un disco, presencia 30 % | Igual, presencia 60 %: compresión paralela suave, cuerpo en graves y aire arriba |
 | Volumen | -14 LUFS | -10 LUFS, con clipper suave antes del limitador. |
 
 Para que el sampler funcione bien, el bombo y la caja tienen que tener su propio micrófono
