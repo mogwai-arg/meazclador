@@ -93,6 +93,12 @@ def cmd_retocar(args) -> int:
         retoques.presencia = args.presencia
     if args.lufs is not None:
         retoques.lufs = args.lufs
+    for nombre in args.reactivar or []:
+        if nombre not in retoques.reactivar:
+            retoques.reactivar.append(nombre)
+    for nombre in args.silenciar or []:
+        if nombre in retoques.reactivar:
+            retoques.reactivar.remove(nombre)
     if args.desde_cero:
         retoques = Retoques()
     print(f"Retoques: {retoques.resumen()}")
@@ -188,6 +194,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="qué pista es la voz principal en este tema (ej: 'Coro 1.wav'); 'auto' = automático. "
                          "Vuelve a procesar sólo las voces")
     pr.add_argument("--lufs", type=float, help="volumen final")
+    pr.add_argument("--reactivar", action="append", metavar="PISTA",
+                    help="hacer sonar una pista que se silenció por no cantar (ej: '12-coro-secundario.wav')")
+    pr.add_argument("--silenciar", action="append", metavar="PISTA", help="deshacer un --reactivar")
     pr.add_argument("--desde-cero", action="store_true", help="olvidar los retoques anteriores")
     pr.set_defaults(func=cmd_retocar)
 

@@ -48,7 +48,8 @@ podés escuchar el inicio y el final, correr cada borde de a 1 segundo o llevarl
 Los archivos se leen de a pedazos, así que no importa que pesen varios GB.
 
 **Pestaña 2 · Mezclar y masterizar.** Elegí la carpeta de un tema o la carpeta `temas` para
-mezclarlos todos. Elegí el estilo y tocá *Mezclar y masterizar*. Cada tema queda en
+mezclarlos todos. El estilo de entrada es **Natural** (limpio y fuerte); también está **Punk**.
+Tocá *Mezclar y masterizar*. Cada tema queda en
 `tema/mezcla/master.wav` y además todos juntos en `temas/masters/`.
 
 **Pestaña 3 · Retocar.** Después de mezclar, subí o bajá voz, coros, guitarras, bajo y batería,
@@ -71,7 +72,7 @@ Cualquier trabajo largo se puede frenar con **✖ Cancelar**.
 | Coros | Abiertos, con reverb | Abiertos, comprimidos y saturados (coro de pandilla). |
 | Sala | Se saca un poco de habitación a voces y coros | Se saca la habitación de voces, coros, guitarras y tambores, sin tocar los graves (retocable en la pestaña 3) |
 | Máster | EQ por octavas hacia la curva de un disco, presencia 30 % | Igual, presencia 60 %: compresión paralela suave, cuerpo en graves y aire arriba |
-| Volumen | -14 LUFS | -10 LUFS, con clipper suave antes del limitador. |
+| Volumen | -10.5 LUFS sólo con limitador (conserva la dinámica) | -10 LUFS, con clipper suave antes del limitador. |
 
 Para que el sampler funcione bien, el bombo y la caja tienen que tener su propio micrófono
 (`Bombo.wav`, `Caja.wav`). Podés usar tus propios samples (un WAV con un solo golpe).
@@ -133,7 +134,8 @@ dist/Meazclador --prueba        # autoprueba: mezcla una banda sintética
   cada micrófono (pasa mucho en consolas en vivo). Antes de mezclar se comprueba:
   - qué pista es de verdad el redoblante (la que golpea entre los golpes del bombo);
   - si algún overhead casi no tiene platillos (se trata como micrófono de sala, más bajo y sin graves);
-  - si algún micrófono de voz no canta en el tema (nivel parejo de lo que se cuela): se silencia.
+  - si algún micrófono de voz no canta en el tema (ni medio segundo de frase por encima de lo que se
+    cuela): se silencia **sólo en ese tema**, y se puede reactivar con una casilla en la pestaña 3.
   Todo queda anotado en el informe. Los toms llevan compuerta para no sumar la banda entre golpes.
 - **Voz principal automática:** en cada tema se mide cuánto canta cada pista de voz. Si una pista
   llamada "coro" canta claramente más que la "voz" (por ejemplo, un tema donde canta otro integrante),

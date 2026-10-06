@@ -70,7 +70,7 @@ def test_mezcla_completa(tmp_path):
     res = mezclar(tmp_path / "pistas", Opciones(afinar=0.5, tonalidad="Am"), avisar=lambda _: None)
     assert res.master.shape[0] == 2
     assert np.isfinite(res.master).all()
-    assert abs(lufs(res.master) - (-14.0)) < 0.5
+    assert abs(lufs(res.master) - (-10.5)) < 0.5  # natural: fuerte pero sin clipper
     assert pico_real(res.master) <= -0.9
     roles = {p.nombre: p.rol for p in res.pistas}
     assert roles["07_Voz.wav"] == "voz" and roles["01_Kick.wav"] == "bombo"
@@ -710,7 +710,8 @@ def test_microfono_de_voz_sin_canto_se_silencia(tmp_path):
     vacio = (rng.standard_normal(principal.shape) * 0.005).astype(np.float32)  # sólo la banda colándose
     pistas = [Pista("11-voz.wav", principal, rol="voz"), Pista("06-coro-principal.wav", coro1, rol="coros"),
               Pista("12-coro-secundario.wav", vacio, rol="coros")]
-    assert silenciar_voces_vacias(pistas) == ["'12-coro-secundario.wav' no canta en este tema: silenciada."]
+    assert silenciar_voces_vacias(pistas) == [
+        "'12-coro-secundario.wav' no canta en este tema: silenciada (se puede reactivar en la pestaña 3)."]
     cambio, _ = elegir_voz_principal(pistas)
     assert not cambio and pistas[0].rol == "voz"  # la pista vacía nunca gana como 'voz principal'
 
@@ -721,6 +722,40 @@ def test_microfono_de_voz_sin_canto_se_silencia(tmp_path):
     res = mezclar(tema, Opciones(estilo="punk", afinar=0), avisar=lambda _: None)
     roles = {p.nombre: (p.rol, p.silenciada) for p in res.pistas}
     assert roles["11-voz.wav"] == ("voz", False) and roles["12-coro-secundario.wav"][1] is True
+
+
+def test_un_coro_que_canta_una_sola_frase_no_se_silencia():
+    from meazclador.analisis import segundos_de_canto, solo_sangrado
+
+    principal, _, _ = _voces_de_banda()
+    rng = np.random.default_rng(6)
+    fondo = (rng.standard_normal(principal.shape) * 0.003).astype(np.float32)
+    una_frase = fondo.copy()
+    una_frase[:, 48000 * 12: 48000 * 14] += principal[:, 48000 * 12: 48000 * 14]  # 2 s cantados
+    assert solo_sangrado(fondo) and not solo_sangrado(una_frase)
+    assert segundos_de_canto(una_frase) > 1
+
+
+def test_reactivar_una_pista_silenciada(tmp_path):
+    import soundfile as sf
+
+    from meazclador.cli import main as cli
+
+    principal, coro1, _ = _voces_de_banda()
+    tema = tmp_path / "tema"
+    tema.mkdir()
+    rng = np.random.default_rng(4)
+    for nombre, audio in (("11-voz.wav", principal), ("06-coro-principal.wav", coro1),
+                          ("12-coro-secundario.wav", (rng.standard_normal(principal.shape) * 0.005))):
+        sf.write(tema / nombre, audio[0], 48000)
+    assert cli(["mezclar", str(tema), "--afinar", "0"]) == 0
+    antes = (tema / "mezcla" / "premaster.wav").read_bytes()
+    assert cli(["retocar", str(tema), "--reactivar", "12-coro-secundario.wav"]) == 0
+    informe = (tema / "mezcla" / "informe.txt").read_text(encoding="utf-8")
+    assert "reactivadas: 12-coro-secundario.wav" in informe
+    assert (tema / "mezcla" / "premaster.wav").read_bytes() != antes
+    assert cli(["retocar", str(tema), "--silenciar", "12-coro-secundario.wav"]) == 0
+    assert "reactivadas" not in (tema / "mezcla" / "informe.txt").read_text(encoding="utf-8")
 
 
 def test_overhead_que_es_sala_y_compuerta_de_toms():

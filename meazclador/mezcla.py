@@ -59,7 +59,7 @@ class Estilo:
 ESTILOS = {
     "natural": Estilo(
         "natural", "Mezcla limpia y equilibrada, sin color de género.",
-        RECETAS, {}, afinar=0.0, tolerancia_cents=10, lufs=-14.0, paralela_db=-8, sala=0.5, presencia=0.3,
+        RECETAS, {}, afinar=0.0, tolerancia_cents=10, lufs=-10.5, paralela_db=-8, sala=0.5, presencia=0.3,
     ),
     "punk": Estilo(
         "punk", "Crudo y al frente, estilo Ramones: pared de guitarras con ampli saturado, bajo con "
@@ -107,6 +107,7 @@ class Retoques:
     reverb: float = 1.0  # 0 = nada, 1 = lo que eligió el estilo, 2 = el doble
     sala: float = 1.0  # sacar sala: 0 = la habitación original, 1 = lo del estilo, 1.5 = más seco
     voz_principal: str | None = None  # pista elegida a mano como voz principal (None = automático)
+    reactivar: list[str] = field(default_factory=list)  # pistas silenciadas que igual tienen que sonar
     presencia: float | None = None  # 0..1; None = lo que diga el estilo
     lufs: float | None = None  # None = lo que diga el estilo (u opciones)
 
@@ -124,6 +125,8 @@ class Retoques:
             partes.append(f"sacar sala {self.sala:.0%}")
         if self.voz_principal:
             partes.append(f"voz principal '{self.voz_principal}'")
+        if self.reactivar:
+            partes.append("reactivadas: " + ", ".join(self.reactivar))
         if self.presencia is not None:
             partes.append(f"presencia {self.presencia:.0%}")
         if self.lufs is not None:
@@ -321,17 +324,20 @@ def combinar(proyecto: Proyecto, retoques: Retoques | None = None, avisar=print)
     if retoques.resumen() != "sin retoques":
         generales.append(f"Retoques: {retoques.resumen()}.")
 
+    def suena(p: Pista) -> bool:
+        return not p.silenciada or p.nombre in retoques.reactivar
+
     cuenta: dict[str, int] = defaultdict(int)
     for p in pistas:
-        if not p.silenciada:
+        if suena(p):
             cuenta[p.rol] += 1
-    tiene_voz = any(p.rol == "voz" and not p.silenciada for p in pistas)
+    tiene_voz = any(p.rol == "voz" and suena(p) for p in pistas)
     largo = max(p.audio.shape[1] for p in pistas)
     bateria, resto = [], []
     envio = np.zeros((2, largo), dtype=np.float32)
     secas = []
     for p in pistas:
-        if p.silenciada:
+        if not suena(p):
             continue
         audio = p.audio
         if p.seco is not None:

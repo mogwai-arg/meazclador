@@ -152,20 +152,31 @@ def masterizar(
     if usar_clipper:
         notas.append("Clipper suave antes del limitador: los picos se redondean como en una cinta (sonido crudo y fuerte).")
 
-    def cadena(g: float) -> np.ndarray:
+    def cadena(g: float, con_clipper: bool) -> np.ndarray:
         x = audio * desde_db(g)
-        if usar_clipper:
+        if con_clipper:
             x = clipper(x)
         limitador.reset()
         return limitador(x, SR_TRABAJO)
 
-    salida = audio
-    for _ in range(8):
-        salida = cadena(ganancia)
-        error = lufs_objetivo - lufs(salida)
-        if abs(error) < 0.2:
-            break
-        ganancia += error
+    def ajustar(con_clipper: bool, g: float) -> tuple[np.ndarray, float, float]:
+        salida = audio
+        error = 0.0
+        for _ in range(8):
+            salida = cadena(g, con_clipper)
+            error = lufs_objetivo - lufs(salida)
+            if abs(error) < 0.2:
+                break
+            g += error
+        return salida, g, error
+
+    salida, ganancia_final, error = ajustar(usar_clipper, ganancia)
+    if not usar_clipper and error > 0.5:
+        # Picos muy filosos: el limitador solo no llega al volumen pedido. Se redondean los picos antes.
+        salida, ganancia_final, error = ajustar(True, ganancia)
+        notas.append("Los picos eran muy filosos para llegar al volumen sólo con el limitador: se usó un "
+                     "clipper suave antes (redondea los picos como una cinta).")
+    ganancia = ganancia_final
 
     pico = pico_real(salida)
     if pico > techo_db:

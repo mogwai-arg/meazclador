@@ -75,6 +75,10 @@ class PanelRetoque(ttk.Frame):
         ttk.Label(voces, text="(cambiarla reprocesa sólo las voces)",
                   foreground="gray").pack(side="left")
 
+        self.marco_silenciadas = ttk.Frame(self)
+        self.marco_silenciadas.grid(row=9, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.silenciadas: dict[str, tk.BooleanVar] = {}
+
         escuchar = ttk.Frame(self)
         escuchar.grid(row=7, column=0, columnspan=3, sticky="w")
         ttk.Label(escuchar, text="Escuchar desde:").pack(side="left")
@@ -141,6 +145,19 @@ class PanelRetoque(ttk.Frame):
         self.voz_principal.set(actual)
         self._voz_al_cargar = actual
 
+        # Pistas que en este tema se silenciaron por no cantar: casilla para hacerlas sonar igual.
+        for hijo in self.marco_silenciadas.winfo_children():
+            hijo.destroy()
+        self.silenciadas = {}
+        calladas = [d["nombre"] for d in proyecto["pistas"] if d.get("silenciada")]
+        if calladas:
+            ttk.Label(self.marco_silenciadas, text="Silenciadas por no cantar en este tema (tildá para que suenen):"
+                      ).pack(anchor="w")
+            for nombre in calladas:
+                var = tk.BooleanVar(value=nombre in r.reactivar)
+                ttk.Checkbutton(self.marco_silenciadas, text=nombre, variable=var).pack(anchor="w", padx=12)
+                self.silenciadas[nombre] = var
+
     def restablecer(self) -> None:
         for clave, _ in CONTROLES_DB:
             self.vars[clave].set(0.0)
@@ -164,6 +181,8 @@ class PanelRetoque(ttk.Frame):
         args += ["--reverb", f"{self.vars['reverb'].get() * 100:.0f}",
                  "--sala", f"{self.vars['sala'].get() * 100:.0f}",
                  "--presencia", f"{self.vars['presencia'].get():.2f}"]
+        for nombre, var in self.silenciadas.items():
+            args += ["--reactivar" if var.get() else "--silenciar", nombre]
         if self.voz_principal.get() and self.voz_principal.get() != getattr(self, "_voz_al_cargar", ""):
             args += ["--voz-principal", self.voz_principal.get()]
             self.app._log(f"Cambio de voz principal a '{self.voz_principal.get()}': se vuelven a procesar las voces "

@@ -176,19 +176,29 @@ def analizar(nombre: str, audio: np.ndarray) -> Pista:
     return pista
 
 
-RANGO_MINIMO_CANTO_DB = 14.0
-
-
-def rango_dinamico(audio: np.ndarray, sr: int = SR_TRABAJO) -> float:
-    """Diferencia (dB) entre las partes fuertes y el fondo de la pista."""
+def segundos_de_canto(audio: np.ndarray, sr: int = SR_TRABAJO, sobre_fondo_db: float = 8) -> float:
+    """Cuántos segundos la pista está claramente (8 dB) por encima de su fondo: lo que se cuela de la
+    banda. Sirve aunque alguien cante una sola frase corta en todo el tema."""
     r = rms_corto(audio, sr, 50)
-    return float(np.percentile(r, 95) - np.percentile(r, 10))
+    fondo = np.percentile(r, 10)  # las pausas: sólo lo que se cuela (aunque la voz cante casi todo el tema)
+    arriba = np.append(r > fondo + sobre_fondo_db, False)
+    # Cantar son frases (tramos seguidos); lo que se cuela de la batería son golpes sueltos y cortos.
+    total, inicio = 0, None
+    for i, a in enumerate(arriba):
+        if a and inicio is None:
+            inicio = i
+        elif not a and inicio is not None:
+            if i - inicio >= 8:  # 0.4 s o más
+                total += i - inicio
+            inicio = None
+    return total * 0.05
 
 
-def solo_sangrado(audio: np.ndarray, sr: int = SR_TRABAJO) -> bool:
-    """Un micrófono de voz donde nadie canta en este tema: su nivel es parejo todo el tiempo
-    (sólo capta la banda que se cuela). Cuando alguien canta, hay 15-30 dB entre frases y pausas."""
-    return rango_dinamico(audio, sr) < RANGO_MINIMO_CANTO_DB
+def solo_sangrado(audio: np.ndarray, sr: int = SR_TRABAJO, minimo_s: float = 0.5) -> bool:
+    """Un micrófono de voz donde nadie canta en este tema: en todo el tema no tiene ni medio segundo
+    de frase por encima de lo que se cuela de la banda. Se decide tema por tema: en otro tema puede
+    cantar. Si igual se equivoca, se reactiva en la pestaña 3."""
+    return segundos_de_canto(audio, sr) < minimo_s
 
 
 def actividad_de_canto(audio: np.ndarray, sr: int = SR_TRABAJO) -> float:
@@ -267,10 +277,9 @@ def silenciar_voces_vacias(pistas: list[Pista]) -> list[str]:
     for p in pistas:
         if p.rol in ROLES_VOZ and solo_sangrado(p.audio):
             p.silenciada = True
-            rango = rango_dinamico(p.audio)
-            p.notas.append(f"En este tema no canta (nivel parejo, {rango:.0f} dB de rango: sólo se cuela la banda). "
-                           "Silenciada.")
-            notas.append(f"'{p.nombre}' no canta en este tema: silenciada.")
+            p.notas.append(f"En este tema no canta (en ningún momento sobresale de lo que se cuela de la banda). "
+                           "Silenciada sólo en este tema; se puede reactivar en la pestaña 3.")
+            notas.append(f"'{p.nombre}' no canta en este tema: silenciada (se puede reactivar en la pestaña 3).")
     return notas
 
 

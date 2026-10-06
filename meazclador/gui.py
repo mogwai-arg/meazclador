@@ -20,8 +20,8 @@ from .gui_sesion import PanelSesion
 from .mezcla import ESTILOS
 
 ESTILOS_GUI = {
+    "Natural (limpio y fuerte)": "natural",
     "Punk (crudo, estilo Ramones)": "punk",
-    "Natural (limpio)": "natural",
 }
 GUITARRAS = {
     "Detectar solo": "auto",
@@ -138,7 +138,7 @@ class App(ttk.Frame):
             row=3, column=1, sticky="ew", padx=6)
 
         ttk.Label(f, text="Afinar voces:").grid(row=4, column=0, sticky="w", pady=4)
-        self.afinar = tk.DoubleVar(value=ESTILOS["punk"].afinar)
+        self.afinar = tk.DoubleVar(value=ESTILOS[next(iter(ESTILOS_GUI.values()))].afinar)
         ttk.Scale(f, from_=0, to=1, variable=self.afinar,
                   command=lambda _: self.txt_afinar.set(self._texto_afinar())).grid(row=4, column=1, sticky="ew", padx=6)
         self.txt_afinar = tk.StringVar(value=self._texto_afinar())
