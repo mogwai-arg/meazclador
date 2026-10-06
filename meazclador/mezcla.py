@@ -499,7 +499,7 @@ def informe(res: Resultado) -> str:
     lineas = ["INFORME DE MEZCLA", "=" * 60, ""]
     for p in res.pistas:
         pos = "centro" if abs(p.pan) < 0.05 else f"{abs(p.pan):.0%} {'izquierda' if p.pan < 0 else 'derecha'}"
-        detectado = "por el nombre" if p.rol_por == "nombre" else "por cómo suena (renombrala si está mal)"
+        detectado = "por el nombre" if p.rol_por == "nombre" else "por cómo suena"
         lineas.append(f"■ {p.nombre} → {p.rol.upper()} (detectado {detectado}), paneo: {pos}")
         lineas += [f"   - {n}" for n in p.notas]
         if p.envio_reverb:

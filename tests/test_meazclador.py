@@ -779,3 +779,18 @@ def test_overhead_que_es_sala_y_compuerta_de_toms():
 
     assert nivel(limpio, 5.0, 5.3) - nivel(tom, 5.0, 5.3) > -1  # el golpe del tom pasa entero
     assert nivel(limpio, 8, 11) - nivel(tom, 8, 11) < -25  # entre golpes, la banda que se cuela no
+
+
+def test_voz_principal_con_mucha_banda_colada():
+    """Caso real del tema 10: en el micrófono 'voz' (que en ese tema hace coros) se cuela tanta banda
+    que parecía cantar todo el tiempo; el 'coro principal' canta la voz principal."""
+    from meazclador.analisis import Pista, elegir_voz_principal
+
+    principal, coro, _ = _voces_de_banda()
+    rng = np.random.default_rng(8)
+    banda = rng.standard_normal(principal.shape).astype(np.float32) * 0.04  # ~10 dB debajo del canto
+    voz_con_banda = coro + banda
+    pistas = [Pista("11-voz.wav", voz_con_banda, rol="voz"), Pista("06-coro-principal.wav", principal, rol="coros")]
+    cambio, explicacion = elegir_voz_principal(pistas)
+    assert cambio and "06-coro-principal.wav" in explicacion
+    assert [p.rol for p in pistas] == ["coros", "voz"]

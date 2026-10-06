@@ -220,24 +220,26 @@ def actividad_de_canto(audio: np.ndarray, sr: int = SR_TRABAJO) -> float:
 ROLES_VOZ = ("voz", "coros")
 
 
-def elegir_voz_principal(pistas: list[Pista], margen: float = 1.3) -> tuple[bool, str | None]:
+def elegir_voz_principal(pistas: list[Pista], margen: float = 1.3, diferencia_s: float = 10.0
+                         ) -> tuple[bool, str | None]:
     """Detecta si en este tema una pista de coros hace de voz principal (y al revés).
 
-    La voz principal canta casi todo el tema; los coros entran en algunas partes. Si la pista
-    llamada coro canta claramente más (`margen` veces) que la llamada voz, se intercambian
-    los papeles. Devuelve (cambió, explicación). La explicación siempre dice cuánto canta
-    cada pista, así se entiende la decisión.
+    La voz principal canta más que los coros. Se cuentan los segundos de frases que sobresalen
+    claramente de lo que se cuela de la banda (ver `segundos_de_canto`): un micrófono de voz con
+    mucha banda colada no parece "cantar todo el tiempo". Si la pista llamada coro canta `margen`
+    veces más (y al menos `diferencia_s` segundos más) que la llamada voz, se intercambian los
+    papeles. Devuelve (cambió, explicación); la explicación siempre dice cuánto canta cada pista.
     """
     voces = [p for p in pistas if p.rol == "voz" and not p.silenciada]
     coros = [p for p in pistas if p.rol == "coros" and not p.silenciada]
     if not voces or not coros:
         return False, None
-    act = {id(p): actividad_de_canto(p.audio) for p in voces + coros}
-    detalle = ", ".join(f"'{p.nombre}' {act[id(p)]:.0%}" for p in voces + coros)
-    principal = max(voces, key=lambda p: act[id(p)])
-    candidato = max(coros, key=lambda p: act[id(p)])
-    a_voz, a_coro = act[id(principal)], act[id(candidato)]
-    if a_coro < 0.25 or a_coro < a_voz * margen or a_coro - a_voz < 0.1:
+    canto = {id(p): segundos_de_canto(p.audio) for p in voces + coros}
+    detalle = ", ".join(f"'{p.nombre}' {canto[id(p)]:.0f} s" for p in voces + coros)
+    principal = max(voces, key=lambda p: canto[id(p)])
+    candidato = max(coros, key=lambda p: canto[id(p)])
+    s_voz, s_coro = canto[id(principal)], canto[id(candidato)]
+    if s_coro < s_voz * margen or s_coro - s_voz < diferencia_s:
         return False, (f"Cuánto canta cada pista de voz: {detalle}. Voz principal: '{principal.nombre}'. "
                        "Si en este tema canta otra, elegila en la pestaña 3 · Retocar.")
     _poner_voz_principal(pistas, candidato)
@@ -249,10 +251,10 @@ def _poner_voz_principal(pistas: list[Pista], elegida: Pista) -> None:
     elegida.silenciada = False  # si la eligieron a mano, tiene que sonar
     for p in pistas:
         if p.rol in ROLES_VOZ and p is not elegida and p.rol == "voz":
-            p.rol = "coros"
+            p.rol, p.rol_por = "coros", "sonido"
             p.notas.append("En este tema hace coros: se la trata como coro.")
     if elegida.rol != "voz":
-        elegida.rol = "voz"
+        elegida.rol, elegida.rol_por = "voz", "sonido"
         elegida.notas.append("En este tema es la VOZ PRINCIPAL: se la trata como voz.")
 
 
