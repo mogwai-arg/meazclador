@@ -39,7 +39,7 @@ Los ejecutables se arman y se prueban solos en GitHub cada vez que cambia el có
 
 ## Uso con la ventana
 
-La ventana es un recorrido en tres pasos (barra lateral, o Ctrl+1/2/3 — ⌘ en Mac). Recuerda las
+La ventana es un recorrido en cuatro pasos (barra lateral, o Ctrl+1 a Ctrl+4 — ⌘ en Mac). Recuerda las
 últimas carpetas elegidas, muestra los avisos dentro de la misma pantalla y cualquier trabajo largo
 se puede frenar con **Cancelar**. El detalle técnico de lo que va haciendo está en **Ver detalles**.
 
@@ -58,6 +58,12 @@ están en *Opciones avanzadas*.
 mismo punto, y ajustá voz, coros, guitarras, bajo, batería, reverb, *sacar sala* y *presencia*.
 *Aplicar retoque* tarda segundos. Si en un tema canta otro integrante, elegí ahí la **voz principal**;
 si una voz quedó silenciada por no cantar, tildala para que suene.
+
+**4 · Pasar a MP3.** Elegí la carpeta con los WAV finales (de entrada propone `temas/masters`), escribí
+el **nombre del disco** y el **artista**, y elegí la calidad (320 kbps de entrada). El título y el número
+de cada tema salen del nombre del archivo (`03_Help.wav` → tema 3, "Help"); con doble clic en la lista
+se cambian. Los MP3 quedan en una carpeta `mp3` al lado de los WAV, con título, número, disco y artista
+ya cargados, así se ven bien en el celular, la compu o el auto. Un tema de 3 minutos pasa de ~50 MB a ~7 MB.
 
 ## Estilos
 
@@ -94,6 +100,10 @@ meazclador mezclar temas/03_Help --estilo punk --tonalidad A \
 
 # retocar una mezcla ya hecha (segundos): más voz, menos reverb, más adelante
 meazclador retocar temas/03_Help --voz +2 --reverb 50 --presencia 0.8
+
+# pasar los masters a MP3 con los datos del disco
+meazclador convertir temas/masters --disco "Ramoneando" --artista "La Banda" \
+    --titulo "03_Help.wav=Help!" --orden "03_Help.wav=1"
 
 # si la detección de guitarras se equivoca
 meazclador mezclar temas/03_Help --estilo punk --guitarras directas

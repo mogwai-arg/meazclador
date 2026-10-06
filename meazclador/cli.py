@@ -3,6 +3,7 @@
     meazclador cortar SESION        separa una grabación larga en temas
     meazclador mezclar CARPETA      mezcla y masteriza un tema (o todos los de una carpeta)
     meazclador retocar TEMA --voz +2 --presencia 0.8   retoca una mezcla hecha, en segundos
+    meazclador convertir MASTERS --disco "..." --artista "..."   pasa los masters a MP3 con etiquetas
 """
 
 from __future__ import annotations
@@ -152,6 +153,33 @@ def cmd_cortar(args) -> int:
     return 0
 
 
+def cmd_convertir(args) -> int:
+    from .convertir import CARPETA_MP3, convertir, temas_de, wavs_en
+
+    wavs = wavs_en(args.carpeta)
+    if not wavs:
+        print(f"Error: no hay archivos WAV en {args.carpeta}", file=sys.stderr)
+        return 1
+    temas = temas_de(wavs)
+    cambios = {}
+    for opcion, valor in [("--titulo", v) for v in args.titulo or []] + [("--orden", v) for v in args.orden or []]:
+        archivo, igual, dato = valor.partition("=")
+        if not igual:
+            raise ValueError(f"{opcion} va como ARCHIVO=VALOR (ej: '03_Help.wav=Help!')")
+        cambios.setdefault(archivo.strip(), {})[opcion] = dato.strip()
+    for tema in temas:
+        for clave in (tema.wav.name, tema.wav.stem):
+            if "--titulo" in cambios.get(clave, {}):
+                tema.titulo = cambios[clave]["--titulo"] or tema.titulo
+            if "--orden" in cambios.get(clave, {}):
+                tema.orden = int(cambios[clave]["--orden"])
+    destino = args.salida or wavs[0].parent / CARPETA_MP3
+    print(f"Convirtiendo {len(temas)} temas a MP3 ({args.kbps} kbps) en {destino}")
+    convertir(temas, destino, args.kbps, args.disco, args.artista)
+    print(f"\nListo: {len(temas)} MP3 en {destino}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:  # sin argumentos: abrir la ventana
@@ -159,7 +187,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return gui()
     # Compatibilidad: 'meazclador CARPETA' sigue siendo mezclar.
-    if argv and argv[0] not in ("cortar", "mezclar", "retocar", "-h", "--help"):
+    if argv and argv[0] not in ("cortar", "mezclar", "retocar", "convertir", "-h", "--help"):
         argv.insert(0, "mezclar")
 
     mezcla = _opciones_mezcla()
@@ -200,7 +228,20 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--desde-cero", action="store_true", help="olvidar los retoques anteriores")
     pr.set_defaults(func=cmd_retocar)
 
+    pv = sub.add_parser("convertir", help="pasar los masters (WAV) a MP3 con título, número, disco y artista")
+    pv.add_argument("carpeta", type=Path, help="carpeta con los WAV finales (o la carpeta 'temas': usa 'masters')")
+    pv.add_argument("-o", "--salida", type=Path, help="dónde dejar los MP3 (por defecto: CARPETA/mp3)")
+    pv.add_argument("--kbps", type=int, default=320, help="calidad: 320 (máxima), 256, 192 o 128")
+    pv.add_argument("--disco", default="", help="nombre del disco")
+    pv.add_argument("--artista", default="", help="nombre de la banda")
+    pv.add_argument("--titulo", action="append", metavar="ARCHIVO=TÍTULO", help="título de un tema (si no, sale del nombre)")
+    pv.add_argument("--orden", action="append", metavar="ARCHIVO=N", help="número de tema (si no, sale del nombre)")
+    pv.set_defaults(func=cmd_convertir)
+
     args = ap.parse_args(argv)
+    if args.comando == "convertir" and not args.carpeta.is_dir():
+        print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)
+        return 1
     if args.comando == "mezclar" and not args.carpeta.is_dir():
         print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)
         return 1

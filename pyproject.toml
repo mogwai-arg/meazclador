@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meazclador"
-version = "0.3.0"
+version = "0.4.0"
 description = "Mezcla y masterización automática de pistas multipista"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,6 +18,7 @@ dependencies = [
     # pyworld importa pkg_resources, que setuptools eliminó a partir de la versión 81
     "setuptools<81",
     "sounddevice>=0.4.6",
+    "mutagen>=1.45",
 ]
 
 [project.optional-dependencies]

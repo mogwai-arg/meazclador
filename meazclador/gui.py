@@ -1,4 +1,4 @@
-"""Ventana de meazclador: un recorrido en tres pasos (cortar, mezclar, escuchar y retocar)."""
+"""Ventana de meazclador: un recorrido en cuatro pasos (cortar, mezclar, retocar y pasar a MP3)."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from . import __version__, preferencias
 from .audio import Cancelado
 from .estilo_ui import (ACENTO, BORDE, ELEVADA, EXITO, S1, S2, S3, S4, S6, S8, SOBRE_ACENTO, SUPERFICIE, TEXTO,
                         TEXTO_2, TEXTO_3, Banner, Desplazable, aplicar_tema)
+from .gui_convertir import PaginaConvertir
 from .gui_mezclar import PaginaMezclar
 from .gui_retoque import PanelRetoque
 from .gui_sesion import PanelSesion
@@ -28,6 +29,9 @@ PASOS = [
      "Reconoce cada micrófono y mezcla y masteriza todos los temas. Tal como viene ya suena bien."),
     ("Escuchar", "y retocar",
      "Ajustá lo que no te convenza y compará con la versión anterior. Cada retoque tarda segundos."),
+    ("Pasar a MP3", "con los datos del disco",
+     "Convertí los temas terminados a MP3, mucho más livianos, con el título, el número de tema, "
+     "el disco y el artista ya puestos."),
 ]
 HOVER_LATERAL = "#25272C"
 
@@ -155,7 +159,8 @@ class App(ttk.Frame):
         self.panel_sesion = PanelSesion(self.contenedores[0].interior, self)
         self.pagina_mezclar = PaginaMezclar(self.contenedores[1].interior, self)
         self.panel_retoque = PanelRetoque(self.contenedores[2].interior, self)
-        self.paginas = [self.panel_sesion, self.pagina_mezclar, self.panel_retoque]
+        self.pagina_convertir = PaginaConvertir(self.contenedores[3].interior, self)
+        self.paginas = [self.panel_sesion, self.pagina_mezclar, self.panel_retoque, self.pagina_convertir]
         for p in self.paginas:
             p.pack(fill="both", expand=True)
 
@@ -186,7 +191,7 @@ class App(ttk.Frame):
             b.pack(fill="x")
             self.botones_paso.append(b)
         atajo = "⌘" if sys.platform == "darwin" else "Ctrl+"
-        tk.Label(lateral, text=f"Atajos: {atajo}1, {atajo}2, {atajo}3", font=self.fuentes.chica,
+        tk.Label(lateral, text=f"Atajos: {atajo}1 a {atajo}{len(PASOS)}", font=self.fuentes.chica,
                  background=SUPERFICIE, foreground=TEXTO_3).pack(anchor="w", padx=S6, pady=(S3, 0))
         tk.Label(lateral, text=f"versión {__version__}", font=self.fuentes.chica, background=SUPERFICIE,
                  foreground=TEXTO_3).pack(side="bottom", anchor="w", padx=S6, pady=S4)
@@ -231,6 +236,8 @@ class App(ttk.Frame):
         if prefs.get("temas"):
             self.pagina_mezclar.carpeta.set(prefs["temas"])
             self.panel_retoque.carpeta.set(prefs["temas"])
+        if prefs.get("masters"):
+            self.pagina_convertir.carpeta.set(prefs["masters"])
 
     # ---------------------------------------------------------- navegación
 

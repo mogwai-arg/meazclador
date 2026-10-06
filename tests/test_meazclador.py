@@ -388,11 +388,11 @@ def test_paso_mezclar_sin_temas_explica_que_hacer(tmp_path, monkeypatch):
         assert app.pagina_mezclar.vacio.winfo_manager() == "place"  # mensaje de 'todavía no hay temas'
         app.ir_a(3)
         assert app.panel_retoque.vacio.winfo_manager() == "grid"  # 'todavía no hay temas mezclados'
-        # Teclado: atajos Ctrl+1..3 registrados y Enter sobre un paso de la barra lateral lo elige.
+        # Teclado: atajos Ctrl+1..4 registrados y Enter sobre un paso de la barra lateral lo elige.
         import sys
 
         tecla = "Command" if sys.platform == "darwin" else "Control"
-        assert all(raiz.bind_all(f"<{tecla}-Key-{i}>") for i in (1, 2, 3))
+        assert all(raiz.bind_all(f"<{tecla}-Key-{i}>") for i in (1, 2, 3, 4))
         paso = app.botones_paso[1]
         assert paso.bind("<Return>") and paso.bind("<space>") and str(paso["takefocus"]) == "1"
         raiz.update()
@@ -854,3 +854,74 @@ def test_voz_principal_con_mucha_banda_colada():
     cambio, explicacion = elegir_voz_principal(pistas)
     assert cambio and "06-coro-principal.wav" in explicacion
     assert [p.rol for p in pistas] == ["coros", "voz"]
+
+
+def _masters_de_prueba(carpeta: Path, nombres, segundos=3, sr=48000):
+    import soundfile as sf
+
+    carpeta.mkdir(parents=True, exist_ok=True)
+    t = np.arange(segundos * sr) / sr
+    for i, nombre in enumerate(nombres):
+        tono = 0.3 * np.sin(2 * np.pi * (220 + 110 * i) * t)
+        sf.write(carpeta / f"{nombre}.wav", np.stack([tono, tono], axis=1), sr, subtype="PCM_24")
+
+
+def test_titulo_y_orden_desde_el_nombre():
+    from meazclador.convertir import titulo_y_orden
+
+    assert titulo_y_orden("03_Help") == ("Help", 3)
+    assert titulo_y_orden("10 - Twist and Shout") == ("Twist and Shout", 10)
+    assert titulo_y_orden("01. I_Saw_Her") == ("I Saw Her", 1)
+    assert titulo_y_orden("Rock and Roll Music") == ("Rock and Roll Music", None)
+    assert titulo_y_orden("1984") == ("1984", None)
+
+
+def test_convertir_a_mp3_con_etiquetas(tmp_path):
+    from mutagen.mp3 import MP3
+
+    from meazclador.cli import main as cli
+
+    _masters_de_prueba(tmp_path / "temas" / "masters", ["01_Help", "02_Twist and Shout"])
+    # Se puede elegir la carpeta 'temas': usa los WAV de 'masters'.
+    assert cli(["convertir", str(tmp_path / "temas"), "--kbps", "192", "--disco", "Ramoneando",
+                "--artista", "La Banda", "--titulo=02_Twist and Shout.wav=Twist & Shout",
+                "--orden=02_Twist and Shout.wav=5"]) == 0
+    destino = tmp_path / "temas" / "masters" / "mp3"
+    help_, twist = MP3(destino / "01_Help.mp3"), MP3(destino / "02_Twist and Shout.mp3")
+    assert help_.info.bitrate == 192000 and help_.info.length == pytest.approx(3, abs=0.1)
+    assert str(help_.tags["TIT2"]) == "Help" and str(help_.tags["TRCK"]) == "1/5"
+    assert str(help_.tags["TALB"]) == "Ramoneando" and str(help_.tags["TPE1"]) == "La Banda"
+    assert str(twist.tags["TIT2"]) == "Twist & Shout" and str(twist.tags["TRCK"]) == "5/5"
+    assert not list(destino.glob("*.parcial.mp3"))
+
+
+def test_paso_convertir_a_mp3(tmp_path, monkeypatch):
+    from mutagen.mp3 import MP3
+
+    _masters_de_prueba(tmp_path / "temas" / "masters", ["01_Help", "02_Twist and Shout"])
+    raiz, app, avisos = _app_de_prueba(monkeypatch, tmp_path)
+    try:
+        app.pagina_mezclar.carpeta.set(str(tmp_path / "temas"))
+        raiz.update()
+        app.ir_a(4)  # de entrada propone los masters del paso 2
+        p = app.pagina_convertir
+        assert Path(p.carpeta.get()) == tmp_path / "temas" / "masters"
+        assert [w.name for w in p.wavs] == ["01_Help.wav", "02_Twist and Shout.wav"]
+        assert "Convertir 2 temas a MP3" in str(p.btn_convertir["text"])
+        assert [str(v) for v in p.tabla.item("02_Twist and Shout.wav", "values")[1:3]] == ["2", "Twist and Shout"]
+        assert not p.poner_etiqueta("01_Help.wav", "orden", "uno") and avisos[-1][0] == "aviso"
+        p.poner_etiqueta("01_Help.wav", "titulo", "Help!")
+        p.disco.set("Ramoneando")
+        p.artista.set("-La Banda-")  # que empiece con guion no rompe nada
+        p.convertir()
+        _esperar(raiz, app)
+        assert avisos[-1][0] == "exito" and "Los 2 MP3 quedaron listos" in avisos[-1][1]
+        assert all("listo" in p.tabla.item(n, "tags") for n in ("01_Help.wav", "02_Twist and Shout.wav"))
+        etiquetas = MP3(tmp_path / "temas" / "masters" / "mp3" / "01_Help.mp3").tags
+        assert str(etiquetas["TIT2"]) == "Help!" and str(etiquetas["TPE1"]) == "-La Banda-"
+        assert app.botones_paso[3].hecho and str(p.btn_abrir["state"]) == "normal"
+        from meazclador import preferencias
+
+        assert preferencias.cargar()["disco"] == "Ramoneando"
+    finally:
+        raiz.destroy()

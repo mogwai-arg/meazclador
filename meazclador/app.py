@@ -1,7 +1,7 @@
 """Punto de entrada del ejecutable (Meazclador.exe / Meazclador.app).
 
 Sin argumentos abre la ventana. Con argumentos se comporta como la línea de comandos.
-'--prueba' mezcla una banda sintética y sale con código 0 si todo funcionó
+'--prueba' mezcla una banda sintética, la pasa a MP3 y sale con código 0 si todo funcionó
 (lo usa la compilación automática para verificar el ejecutable).
 """
 
@@ -24,6 +24,10 @@ def autoprueba() -> int:
         for estilo in ("natural", "punk"):
             codigo = cli(["mezclar", str(pistas), "--estilo", estilo, "--afinar", "0.5", "--tonalidad", "Am"])
             ok = ok and codigo == 0 and (pistas / "mezcla" / "master.wav").stat().st_size > 100_000
+        # Pasar a MP3 con etiquetas (el codificador y mutagen tienen que venir dentro del ejecutable).
+        codigo = cli(["convertir", str(pistas / "mezcla"), "--disco", "Prueba", "--artista", "Meazclador"])
+        mp3 = pistas / "mezcla" / "mp3" / "master.mp3"
+        ok = ok and codigo == 0 and mp3.is_file() and mp3.stat().st_size > 50_000
     from .reproductor import Reproductor
 
     # En Windows y Mac PortAudio viene dentro del paquete: si no carga, el empaquetado está mal.

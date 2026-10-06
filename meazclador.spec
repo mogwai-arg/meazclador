@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], []
 for paquete in ("pedalboard", "pyworld", "pyloudnorm", "soundfile", "_soundfile_data",
-                "sounddevice", "_sounddevice_data"):
+                "sounddevice", "_sounddevice_data", "mutagen"):
     try:
         d, b, h = collect_all(paquete)
     except Exception:
