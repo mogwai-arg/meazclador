@@ -10,6 +10,12 @@ on:
 permissions:
   contents: write
 
+# Si se suben cambios seguidos, la ejecución nueva cancela la anterior:
+# así dos ejecuciones nunca publican la página de descargas al mismo tiempo.
+concurrency:
+  group: ejecutables-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     runs-on: ubuntu-latest
