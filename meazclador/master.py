@@ -79,9 +79,29 @@ def clipper(audio: np.ndarray, umbral_db: float = -3.0) -> np.ndarray:
     return resample_poly(np.sign(sobre) * curva, 1, 4, axis=1).astype(np.float32)
 
 
+def adelantar(audio: np.ndarray, presencia: float) -> np.ndarray:
+    """Trae la mezcla 'adelante', como un tema de estudio.
+
+    - Compresión paralela (estilo Nueva York): una copia muy comprimida mezclada por debajo sube
+      los detalles y las colas cortas sin aplastar los golpes.
+    - Menos 'caja' (300-500 Hz, lo que hace sonar a habitación chica) y más presencia (2-5 kHz).
+    """
+    r = rms_corto(audio)
+    picos = float(np.percentile(r[r > -60], 90)) if np.any(r > -60) else -20.0
+    aplastada = Pedalboard([Compressor(threshold_db=picos - 15, ratio=6, attack_ms=5, release_ms=100)])(
+        audio, SR_TRABAJO)
+    aplastada = aplastada * desde_db(-8.0 + 4.0 * presencia)  # por debajo de la mezcla original
+    tono = Pedalboard([
+        PeakFilter(cutoff_frequency_hz=400, gain_db=-2.5 * presencia, q=0.9),
+        PeakFilter(cutoff_frequency_hz=3000, gain_db=2.0 * presencia, q=0.7),
+    ])
+    salida = tono(audio + presencia * aplastada, SR_TRABAJO)
+    return salida.astype(np.float32)
+
+
 def masterizar(
     mezcla: np.ndarray, lufs_objetivo: float = -14.0, techo_db: float = -1.0, referencia: np.ndarray | None = None,
-    usar_clipper: bool = False,
+    usar_clipper: bool = False, presencia: float = 0.0,
 ) -> tuple[np.ndarray, list[str]]:
     notas: list[str] = []
     audio = graves_en_mono(mezcla)
@@ -98,6 +118,10 @@ def masterizar(
     notas.append("Compresión de 'pegamento' 1.5:1: une la mezcla sin aplastarla.")
     audio = Pedalboard(filtros)(audio, SR_TRABAJO)
     audio = saturacion(audio, 0.08)
+    if presencia > 0:
+        audio = adelantar(audio, presencia)
+        notas.append(f"Presencia {presencia:.0%}: compresión paralela (sube el detalle y el cuerpo) "
+                     "y menos 'caja' en los medios-graves: todo suena más cerca, menos de habitación.")
 
     if referencia is not None:
         lufs_objetivo = min(lufs(referencia), -7.0)

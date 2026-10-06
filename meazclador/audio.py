@@ -13,6 +13,10 @@ from scipy.signal import resample_poly
 SR_TRABAJO = 48000
 
 
+class Cancelado(Exception):
+    """El usuario canceló el trabajo."""
+
+
 def cargar(ruta: Path, sr_destino: int = SR_TRABAJO) -> np.ndarray:
     """Lee un WAV y lo devuelve como float32 (canales, muestras) a sr_destino."""
     datos, sr = sf.read(str(ruta), dtype="float32", always_2d=True)

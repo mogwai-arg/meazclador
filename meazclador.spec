@@ -4,7 +4,8 @@ import sys
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], []
-for paquete in ("pedalboard", "pyworld", "pyloudnorm", "soundfile", "_soundfile_data"):
+for paquete in ("pedalboard", "pyworld", "pyloudnorm", "soundfile", "_soundfile_data",
+                "sounddevice", "_sounddevice_data"):
     try:
         d, b, h = collect_all(paquete)
     except Exception:

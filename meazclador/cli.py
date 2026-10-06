@@ -2,6 +2,7 @@
 
     meazclador cortar SESION        separa una grabación larga en temas
     meazclador mezclar CARPETA      mezcla y masteriza un tema (o todos los de una carpeta)
+    meazclador retocar TEMA --voz +2 --presencia 0.8   retoca una mezcla hecha, en segundos
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .mezcla import ESTILOS, Opciones, exportar, listar_pistas, mezclar
+from .mezcla import ARCHIVO_RETOQUES, ESTILOS, GRUPOS_RETOQUE, Opciones, Retoques, listar_pistas, mezclar_y_guardar, retocar
 from .sesion import a_reloj, cortar, detectar_temas, energia, escribir_lista, info_pistas, leer_cortes
 
 CARPETAS_SALIDA = {"mezcla", "masters"}
@@ -42,8 +43,7 @@ def _temas_en(carpeta: Path) -> list[Path]:
 
 
 def _mezclar_uno(carpeta: Path, opciones: Opciones, destino: Path) -> Path:
-    resultado = mezclar(carpeta, opciones)
-    rutas = exportar(resultado, destino)
+    rutas = mezclar_y_guardar(carpeta, opciones, destino)
     for ruta in rutas:
         print(f"✔ {ruta}")
     return rutas[0]
@@ -74,6 +74,28 @@ def cmd_mezclar(args) -> int:
         master = _mezclar_uno(tema, opciones, tema / "mezcla")
         shutil.copyfile(master, masters / f"{tema.name}.wav")
     print(f"\nTodos los masters juntos en {masters}")
+    return 0
+
+
+def cmd_retocar(args) -> int:
+    destino = args.tema / "mezcla" if (args.tema / "mezcla").is_dir() else args.tema
+    retoques = Retoques.cargar(destino / ARCHIVO_RETOQUES)  # se parte de los retoques anteriores
+    for grupo in GRUPOS_RETOQUE:
+        if getattr(args, grupo) is not None:
+            setattr(retoques, grupo, getattr(args, grupo))
+    if args.reverb is not None:
+        retoques.reverb = args.reverb / 100
+    if args.presencia is not None:
+        retoques.presencia = args.presencia
+    if args.lufs is not None:
+        retoques.lufs = args.lufs
+    if args.desde_cero:
+        retoques = Retoques()
+    print(f"Retoques: {retoques.resumen()}")
+    for ruta in retocar(destino, retoques):
+        print(f"✔ {ruta}")
+    if args.tema.parent.name and (args.tema.parent / "masters").is_dir():
+        shutil.copyfile(destino / "master.wav", args.tema.parent / "masters" / f"{args.tema.name}.wav")
     return 0
 
 
@@ -127,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return gui()
     # Compatibilidad: 'meazclador CARPETA' sigue siendo mezclar.
-    if argv and argv[0] not in ("cortar", "mezclar", "-h", "--help"):
+    if argv and argv[0] not in ("cortar", "mezclar", "retocar", "-h", "--help"):
         argv.insert(0, "mezclar")
 
     mezcla = _opciones_mezcla()
@@ -150,9 +172,22 @@ def main(argv: list[str] | None = None) -> int:
     pc.add_argument("--mezclar", action="store_true", help="después de cortar, mezclar todos los temas")
     pc.set_defaults(func=cmd_cortar)
 
+    pr = sub.add_parser("retocar", help="retocar una mezcla ya hecha (rápido: no vuelve a procesar las pistas)")
+    pr.add_argument("tema", type=Path, help="carpeta del tema (la que tiene la subcarpeta 'mezcla')")
+    for grupo in GRUPOS_RETOQUE:
+        pr.add_argument(f"--{grupo}", type=float, metavar="DB", help=f"subir/bajar {grupo} en dB (ej: +2, -1.5)")
+    pr.add_argument("--reverb", type=float, metavar="%", help="cantidad de reverb: 0 = nada, 100 = la del estilo")
+    pr.add_argument("--presencia", type=float, help="0..1: cuánto trae todo adelante el máster")
+    pr.add_argument("--lufs", type=float, help="volumen final")
+    pr.add_argument("--desde-cero", action="store_true", help="olvidar los retoques anteriores")
+    pr.set_defaults(func=cmd_retocar)
+
     args = ap.parse_args(argv)
     if args.comando == "mezclar" and not args.carpeta.is_dir():
         print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)
+        return 1
+    if args.comando == "retocar" and not args.tema.is_dir():
+        print(f"No existe la carpeta {args.tema}", file=sys.stderr)
         return 1
     if args.comando == "cortar" and not args.sesion.is_dir():
         print(f"No existe la carpeta {args.sesion}", file=sys.stderr)

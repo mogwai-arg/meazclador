@@ -24,8 +24,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y xvfb libportaudio2
       - run: pip install -e ".[dev]"
-      - run: pytest -q
+      - name: Tests (con pantalla virtual para probar la ventana)
+        run: xvfb-run -a pytest -q -rs
 
   armar:
     needs: tests

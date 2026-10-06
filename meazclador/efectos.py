@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from pedalboard import HighpassFilter, LowpassFilter, PeakFilter, Pedalboard
 from scipy.ndimage import maximum_filter1d, uniform_filter1d
-from scipy.signal import resample_poly, stft
+from scipy.signal import istft, resample_poly, stft
 
 from .audio import SR_TRABAJO, a_mono, cargar, db, desde_db, nivel_activo
 
@@ -202,3 +202,39 @@ def eco_corto(audio: np.ndarray, ms: float = 110, nivel_db: float = -12, sr: int
     rep = Pedalboard([HighpassFilter(cutoff_frequency_hz=400), LowpassFilter(cutoff_frequency_hz=3500)])(
         rep.astype(np.float32), sr)
     return (audio + rep * desde_db(nivel_db)).astype(np.float32)
+
+
+# ---------------------------------------------------------------- sala
+
+
+def desreverberar(audio: np.ndarray, fuerza: float = 0.5, t60: float = 0.8, sr: int = SR_TRABAJO,
+                  piso_db: float = -18.0) -> np.ndarray:
+    """Saca 'sala': atenúa la cola de reverberación que el micrófono captó de la habitación.
+
+    Método de reverberación tardía (Lebart): la reverb de la sala en cada instante se estima
+    como el sonido de hace 50 ms, apagándose según el tiempo de reverberación (t60). Lo que
+    sobresale de esa estimación es el sonido directo y se conserva; el resto se baja hasta
+    `piso_db`. fuerza 0..1.
+    """
+    if fuerza <= 0:
+        return audio
+    nper, salto = 1024, 256
+    retraso = int(0.05 * sr / salto)  # 50 ms: el sonido directo y las primeras reflexiones quedan
+    decaimiento = np.exp(-2 * (3 * np.log(10) / t60) * retraso * salto / sr)
+    g_min = desde_db(piso_db) ** 2
+    bloque, margen = sr * 20, sr  # de a 20 s con 1 s de contexto: poca memoria y resultado idéntico
+    salida = np.zeros_like(audio)
+    n = audio.shape[1]
+    for inicio in range(0, n, bloque):
+        a, b = max(0, inicio - margen), min(n, inicio + bloque + margen)
+        _, _, z = stft(audio[:, a:b], sr, nperseg=nper, noverlap=nper - salto, axis=-1)
+        potencia = uniform_filter1d((np.abs(z) ** 2).astype(np.float32), 3, axis=-1)
+        tardia = np.zeros_like(potencia)
+        tardia[..., retraso:] = decaimiento * potencia[..., :-retraso]
+        # Sobre-resta (hasta 3x la estimación): la sala real casi nunca se apaga tan parejo.
+        ganancia = np.clip(1 - 3 * fuerza * tardia / (potencia + 1e-12), g_min, 1)
+        ganancia = np.sqrt(uniform_filter1d(uniform_filter1d(ganancia, 3, axis=-1), 3, axis=-2))
+        _, y = istft(z * ganancia, sr, nperseg=nper, noverlap=nper - salto, time_axis=-1, freq_axis=-2)
+        tramo = y[:, : b - a]
+        salida[:, inicio:min(n, inicio + bloque)] = tramo[:, inicio - a: inicio - a + min(bloque, n - inicio)]
+    return salida.astype(np.float32)

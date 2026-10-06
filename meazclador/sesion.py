@@ -14,6 +14,8 @@ import numpy as np
 import soundfile as sf
 from scipy.ndimage import uniform_filter1d
 
+from .audio import Cancelado
+
 PASO_S = 0.1  # resolución del análisis: 100 ms
 BLOQUE_S = 30  # se lee de a 30 segundos por pista
 
@@ -32,6 +34,12 @@ class Tema:
 def a_reloj(seg: float) -> str:
     m, s = divmod(int(round(seg)), 60)
     return f"{m}:{s:02d}"
+
+
+def a_reloj_preciso(seg: float) -> str:
+    """Con décimas, para que la lista conserve los bordes ajustados a mano: 3:05.4"""
+    m, s = divmod(round(seg, 1), 60)
+    return f"{int(m)}:{s:04.1f}"
 
 
 def de_reloj(txt: str) -> float:
@@ -59,7 +67,7 @@ def info_pistas(archivos: list[Path]) -> tuple[int, float, list[str]]:
     return tasas.pop(), max(duraciones), avisos
 
 
-def energia(archivos: list[Path], avisar=print) -> np.ndarray:
+def energia(archivos: list[Path], avisar=print, cancelar=lambda: False) -> np.ndarray:
     """Nivel (dB) de toda la banda junta, cada 100 ms, leyendo los archivos de a bloques.
 
     Se suman energías (no señales) para que dos micrófonos en contrafase no se anulen.
@@ -72,6 +80,8 @@ def energia(archivos: list[Path], avisar=print) -> np.ndarray:
         pos = 0
         with sf.SoundFile(str(archivo)) as f:
             for bloque in f.blocks(blocksize=paso * int(BLOQUE_S / PASO_S), dtype="float32", always_2d=True):
+                if cancelar():
+                    raise Cancelado()
                 mono = bloque.mean(axis=1)
                 ventanas = len(mono) // paso
                 if ventanas == 0:
@@ -164,7 +174,7 @@ def escribir_lista(temas: list[Tema], ruta: Path) -> None:
         "# y volver a cortar con:  meazclador cortar CARPETA --cortes este_archivo.txt",
         "# inicio  fin  nombre",
     ]
-    lineas += [f"{a_reloj(t.inicio):>7}  {a_reloj(t.fin):>7}  {t.nombre}" for t in temas]
+    lineas += [f"{a_reloj_preciso(t.inicio):>8}  {a_reloj_preciso(t.fin):>8}  {t.nombre}" for t in temas]
     ruta.write_text("\n".join(lineas) + "\n", encoding="utf-8")
 
 
@@ -199,3 +209,26 @@ def cortar(archivos: list[Path], temas: list[Tema], destino: Path, avisar=print)
                          subtype=f.subtype, format=f.format)
         carpetas.append(carpeta)
     return carpetas
+
+
+def fragmento(archivos: list[Path], desde_s: float, hasta_s: float) -> tuple[np.ndarray, int]:
+    """Mezcla de monitoreo (todas las pistas sumadas) de un tramo, para escuchar antes de cortar.
+
+    Lee sólo ese tramo de cada archivo. Devuelve (audio estéreo (2, n), sample rate).
+    """
+    sr = sf.info(str(archivos[0])).samplerate
+    desde_s = max(0.0, desde_s)
+    n = max(1, int((hasta_s - desde_s) * sr))
+    mezcla = np.zeros((2, n), dtype=np.float32)
+    for archivo in archivos:
+        with sf.SoundFile(str(archivo)) as f:
+            inicio = min(int(desde_s * f.samplerate), f.frames)
+            f.seek(inicio)
+            datos = f.read(min(n, f.frames - inicio), dtype="float32", always_2d=True).T
+        if datos.shape[0] == 1:
+            datos = np.vstack([datos, datos])
+        mezcla[:, : datos.shape[1]] += datos[:2]
+    pico = float(np.max(np.abs(mezcla)))
+    if pico > 0:
+        mezcla *= 0.9 / pico
+    return mezcla, sr

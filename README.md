@@ -40,14 +40,23 @@ Los ejecutables se arman y se prueban solos en GitHub cada vez que cambia el có
 ## Uso con la ventana
 
 **Pestaña 1 · Cortar la grabación larga.** Si grabaron un ensayo o un show entero (por ejemplo
-40 minutos, un WAV por micrófono), elegí esa carpeta y tocá *Buscar temas*. Aparece la lista de
-temas con sus tiempos: corregí lo que haga falta, ponele nombre a cada tema (`0:12  3:05  Help`)
-y tocá *Cortar temas*. Los archivos se leen de a pedazos, así que no importa que pesen varios GB.
-Si junta dos temas, bajá la *sensibilidad*; si deja charla adentro, subila.
+40 minutos, un WAV por micrófono), elegí esa carpeta y tocá *Analizar*. Aparece un **mapa de la
+sesión**: cada franja celeste es un tema. **Hacé clic en cualquier punto del mapa para escucharlo.**
+Si junta o parte temas, mové la *sensibilidad*: el mapa se actualiza al instante. Para cada tema
+podés escuchar el inicio y el final, correr cada borde de a 1 segundo o llevarlo a la marca ◆
+(el último clic en el mapa), dividir, unir, borrar y ponerle nombre. Después tocá *Cortar temas*.
+Los archivos se leen de a pedazos, así que no importa que pesen varios GB.
 
 **Pestaña 2 · Mezclar y masterizar.** Elegí la carpeta de un tema o la carpeta `temas` para
 mezclarlos todos. Elegí el estilo y tocá *Mezclar y masterizar*. Cada tema queda en
 `tema/mezcla/master.wav` y además todos juntos en `temas/masters/`.
+
+**Pestaña 3 · Retocar.** Después de mezclar, subí o bajá voz, coros, guitarras, bajo y batería,
+la cantidad de reverb y la **presencia** del máster (cuánto trae todo adelante), y tocá *Aplicar*.
+No vuelve a procesar las pistas, así que tarda segundos. Escuchá *Mezcla actual* y *Versión anterior*
+desde el mismo punto para comparar. Los retoques se guardan: si volvés a mezclar el tema, se mantienen.
+
+Cualquier trabajo largo se puede frenar con **✖ Cancelar**.
 
 ## Estilos
 
@@ -58,6 +67,8 @@ mezclarlos todos. Elegí el estilo y tocá *Mezclar y masterizar*. Cada tema que
 | Batería | Compresión de bus y paralela | **Sampler**: cada golpe de bombo y caja se refuerza con un sample (incorporado o el tuyo), respetando la fuerza de cada golpe. Realce de ataque y compresión paralela más fuerte. |
 | Voz | Afinación opcional | **Sólo se corrigen las notas que se pasan de 35 cents**; el resto queda intacto, con su suciedad. Eco corto (slapback) en vez de reverb larga. |
 | Coros | Abiertos, con reverb | Abiertos, comprimidos y saturados (coro de pandilla). |
+| Sala | Se saca un poco de habitación a voces y coros | Se saca la habitación de voces, coros, guitarras y tambores (suena seco y cerca, de estudio) |
+| Máster | Presencia 30 % | Presencia 60 %: compresión paralela y menos "caja" en los medios-graves |
 | Volumen | -14 LUFS | -10 LUFS, con clipper suave antes del limitador. |
 
 Para que el sampler funcione bien, el bombo y la caja tienen que tener su propio micrófono
@@ -80,6 +91,9 @@ meazclador mezclar temas/03_Help --estilo punk --tonalidad A \
     --sample-bombo mis_samples/bombo.wav --sample-caja mis_samples/caja.wav \
     --referencia "referencias/Blitzkrieg Bop.wav"
 
+# retocar una mezcla ya hecha (segundos): más voz, menos reverb, más adelante
+meazclador retocar temas/03_Help --voz +2 --reverb 50 --presencia 0.8
+
 # si la detección de guitarras se equivoca
 meazclador mezclar temas/03_Help --estilo punk --guitarras directas
 ```
@@ -91,6 +105,8 @@ En la carpeta de cada tema, `mezcla/` contiene:
 | `master.wav` | La canción terminada (24 bits, 48 kHz). |
 | `premaster.wav` | La mezcla sin masterizar, con margen, por si la querés mandar a un estudio de mastering. |
 | `informe.txt` | Qué se hizo en cada pista y por qué. |
+| `master_anterior.wav` | La versión antes del último retoque, para comparar. |
+| `pistas_procesadas/` | Las pistas ya procesadas, para poder retocar rápido. Se pueden borrar si necesitás espacio (después no se puede retocar sin volver a mezclar). |
 
 ¿No tenés pistas a mano? `python -m meazclador.demo demo/pistas` genera una banda sintética de prueba.
 

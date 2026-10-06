@@ -14,6 +14,9 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import __version__
 from .cli import main as cli
+from .audio import Cancelado
+from .gui_retoque import PanelRetoque
+from .gui_sesion import PanelSesion
 from .mezcla import ESTILOS
 
 ESTILOS_GUI = {
@@ -64,7 +67,7 @@ class App(ttk.Frame):
         self.trabajando = False
         self.ultima_salida: Path | None = None
         raiz.title(f"Meazclador {__version__}")
-        raiz.minsize(760, 760)
+        raiz.minsize(820, 860)
         self.grid(sticky="nsew")
         raiz.columnconfigure(0, weight=1)
         raiz.rowconfigure(0, weight=1)
@@ -75,10 +78,19 @@ class App(ttk.Frame):
         self.pestanas.grid(row=0, column=0, sticky="nsew")
         self.pestanas.add(self._pestana_cortar(), text="  1 · Cortar la grabación larga  ")
         self.pestanas.add(self._pestana_mezclar(), text="  2 · Mezclar y masterizar  ")
+        self.panel_retoque = PanelRetoque(self.pestanas, self)
+        self.pestanas.add(self.panel_retoque, text="  3 · Retocar  ")
 
-        self.progreso = ttk.Progressbar(self, mode="indeterminate")
-        self.progreso.grid(row=1, column=0, sticky="ew", pady=(10, 4))
-        self.registro = tk.Text(self, height=12, state="disabled", wrap="word", font=("TkFixedFont", 9))
+        estado = ttk.Frame(self)
+        estado.grid(row=1, column=0, sticky="ew", pady=(10, 4))
+        estado.columnconfigure(0, weight=1)
+        self.progreso = ttk.Progressbar(estado, mode="indeterminate")
+        self.progreso.grid(row=0, column=0, sticky="ew")
+        self.btn_cancelar = ttk.Button(estado, text="✖ Cancelar", state="disabled", command=self.cancelar)
+        self.btn_cancelar.grid(row=0, column=1, padx=(8, 0))
+        self.proceso: subprocess.Popen | None = None
+        self.cancelacion = threading.Event()
+        self.registro = tk.Text(self, height=8, state="disabled", wrap="word", font=("TkFixedFont", 9))
         self.registro.grid(row=2, column=0, sticky="nsew")
         self._leer_cola()
 
@@ -99,35 +111,8 @@ class App(ttk.Frame):
         ttk.Button(padre, text="Elegir…", command=elegir).grid(row=fila, column=2)
 
     def _pestana_cortar(self) -> ttk.Frame:
-        f = ttk.Frame(self.pestanas, padding=10)
-        f.columnconfigure(1, weight=1)
-        f.rowconfigure(5, weight=1)
-        ttk.Label(f, wraplength=640, justify="left", text=(
-            "Elegí la carpeta con las pistas de la grabación completa (un WAV por micrófono). "
-            "El programa encuentra dónde empieza y termina cada tema. Revisá la lista: podés "
-            "corregir tiempos, borrar líneas o ponerles nombre a los temas antes de cortar."
-        )).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-
-        self.sesion = tk.StringVar()
-        self._fila_carpeta(f, 1, "Carpeta de la sesión:", self.sesion)
-
-        ttk.Label(f, text="Sensibilidad:").grid(row=2, column=0, sticky="w", pady=4)
-        self.sensibilidad = tk.DoubleVar(value=0.45)
-        ttk.Scale(f, from_=0.2, to=0.8, variable=self.sensibilidad).grid(row=2, column=1, sticky="ew", padx=6)
-        ttk.Label(f, text="← junta temas / deja charla →", foreground="gray").grid(row=2, column=2)
-
-        ttk.Label(f, text="Tema más corto (seg):").grid(row=3, column=0, sticky="w", pady=4)
-        self.min_tema = tk.IntVar(value=60)
-        ttk.Spinbox(f, from_=10, to=600, increment=10, textvariable=self.min_tema, width=6).grid(
-            row=3, column=1, sticky="w", padx=6)
-
-        self.btn_buscar = ttk.Button(f, text="🔍  Buscar temas", command=self.buscar_temas)
-        self.btn_buscar.grid(row=4, column=0, columnspan=3, sticky="w", pady=6)
-        self.lista = tk.Text(f, height=8, font=("TkFixedFont", 10))
-        self.lista.grid(row=5, column=0, columnspan=3, sticky="nsew")
-        self.btn_cortar = ttk.Button(f, text="✂  Cortar temas", command=self.cortar_temas)
-        self.btn_cortar.grid(row=6, column=0, columnspan=3, sticky="w", pady=(8, 0))
-        return f
+        self.panel_sesion = PanelSesion(self.pestanas, self)
+        return self.panel_sesion
 
     def _pestana_mezclar(self) -> ttk.Frame:
         f = ttk.Frame(self.pestanas, padding=10)
@@ -218,33 +203,82 @@ class App(ttk.Frame):
             pass
         self.after(100, self._leer_cola)
 
-    def _correr(self, args: list[str], al_terminar=None) -> None:
+    def _botones_trabajo(self) -> list:
+        p = self.panel_sesion
+        return [p.btn_analizar, p.btn_cortar, self.btn_mezclar, self.panel_retoque.btn_aplicar]
+
+    @staticmethod
+    def _comando(args: list[str]) -> list[str]:
+        """Cómo lanzarse a sí mismo como proceso aparte (en el ejecutable o desde Python)."""
+        if getattr(sys, "frozen", False):
+            return [sys.executable, *args]
+        return [sys.executable, "-m", "meazclador.app", *args]
+
+    def _correr(self, tarea, al_terminar=None) -> None:
+        """Corre un trabajo en segundo plano sin congelar la ventana.
+
+        - Lista de argumentos: se lanza como proceso aparte (así 'Cancelar' lo corta en el acto).
+        - Función: corre en un hilo; recibe un callback `cancelar()` si lo acepta, y al_terminar
+          recibe lo que devolvió.
+        """
         if self.trabajando:
             return
         self.trabajando = True
-        for b in (self.btn_buscar, self.btn_cortar, self.btn_mezclar):
+        self.cancelacion.clear()
+        for b in self._botones_trabajo():
             b.configure(state="disabled")
+        self.btn_cancelar.configure(state="normal")
         self.progreso.start(12)
-        self._log("\n▶ " + " ".join(args) + "\n")
+        if not callable(tarea):
+            self._log("\n▶ " + " ".join(tarea) + "\n")
+
+        def en_proceso() -> int:
+            opciones = {}
+            if sys.platform.startswith("win"):
+                opciones["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
+            self.proceso = subprocess.Popen(
+                self._comando(tarea), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                text=True, encoding="utf-8", errors="replace", bufsize=1,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}, **opciones)
+            for linea in self.proceso.stdout:
+                self.cola.put(linea)
+            return self.proceso.wait()
 
         def trabajo():
-            salida = _Cola(self.cola)
+            resultado, codigo = None, 1
             try:
-                with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(salida):
-                    codigo = cli(args)
+                if callable(tarea):
+                    with contextlib.redirect_stdout(_Cola(self.cola)), contextlib.redirect_stderr(_Cola(self.cola)):
+                        resultado, codigo = tarea(self.cancelacion.is_set), 0
+                else:
+                    codigo = en_proceso()
+            except Cancelado:
+                pass
             except Exception as e:  # que un error nunca cuelgue la ventana
-                self.cola.put(f"Error inesperado: {e}\n")
-                codigo = 1
-            self.cola.put(("fin", codigo, al_terminar))  # tkinter sólo se toca desde el hilo principal
+                self.cola.put(f"Error: {e}\n")
+            if self.cancelacion.is_set():
+                codigo = -1
+            listo = (lambda: al_terminar(resultado)) if (al_terminar and callable(tarea)) else al_terminar
+            self.cola.put(("fin", codigo, listo))  # tkinter sólo se toca desde el hilo principal
 
         threading.Thread(target=trabajo, daemon=True).start()
 
+    def cancelar(self) -> None:
+        self.cancelacion.set()
+        if self.proceso and self.proceso.poll() is None:
+            self.proceso.kill()
+        self._log("\n✖ Cancelando...\n")
+
     def _fin(self, codigo: int, al_terminar) -> None:
         self.trabajando = False
+        self.proceso = None
         self.progreso.stop()
-        for b in (self.btn_buscar, self.btn_cortar, self.btn_mezclar):
+        self.btn_cancelar.configure(state="disabled")
+        for b in self._botones_trabajo():
             b.configure(state="normal")
-        if codigo == 0:
+        if codigo == -1:
+            self._log("✖ Cancelado. Lo que se estaba haciendo quedó a medias; podés volver a empezar.\n")
+        elif codigo == 0:
             if al_terminar:
                 al_terminar()
         else:
@@ -256,40 +290,6 @@ class App(ttk.Frame):
             messagebox.showwarning("Meazclador", "Elegí primero una carpeta.")
             return None
         return ruta
-
-    def buscar_temas(self) -> None:
-        sesion = self._carpeta_valida(self.sesion)
-        if not sesion:
-            return
-
-        def mostrar():
-            lista = sesion / "temas" / "temas.txt"
-            self.lista.delete("1.0", "end")
-            self.lista.insert("1.0", lista.read_text(encoding="utf-8"))
-
-        self._correr(["cortar", str(sesion), "--solo-mostrar",
-                      "--sensibilidad", f"{self.sensibilidad.get():.2f}",
-                      "--min-tema", str(self.min_tema.get())], mostrar)
-
-    def cortar_temas(self) -> None:
-        sesion = self._carpeta_valida(self.sesion)
-        if not sesion:
-            return
-        texto = self.lista.get("1.0", "end").strip()
-        if not texto:
-            messagebox.showinfo("Meazclador", "Primero tocá 'Buscar temas' (o escribí los tiempos en la lista).")
-            return
-        destino = sesion / "temas"
-        destino.mkdir(exist_ok=True)
-        lista = destino / "temas.txt"
-        lista.write_text(texto + "\n", encoding="utf-8")
-
-        def listo():
-            self.carpeta.set(str(destino))
-            self.pestanas.select(1)
-            messagebox.showinfo("Meazclador", "Temas cortados. Ahora podés mezclarlos en la pestaña 2.")
-
-        self._correr(["cortar", str(sesion), "--cortes", str(lista)], listo)
 
     def mezclar(self) -> None:
         carpeta = self._carpeta_valida(self.carpeta)
@@ -308,7 +308,9 @@ class App(ttk.Frame):
             mezcla = carpeta / "mezcla"
             self.ultima_salida = mezcla if mezcla.is_dir() else carpeta / "masters"
             self.btn_abrir.configure(state="normal")
-            messagebox.showinfo("Meazclador", f"¡Listo! Los resultados están en:\n{self.ultima_salida}")
+            self.panel_retoque.carpeta.set(str(carpeta))
+            messagebox.showinfo("Meazclador", f"¡Listo! Los resultados están en:\n{self.ultima_salida}\n\n"
+                                "Si algo no te convence (voz, reverb, presencia), ajustalo en la pestaña 3 · Retocar.")
 
         self._correr(args, listo)
 

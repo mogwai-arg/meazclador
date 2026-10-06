@@ -146,7 +146,7 @@ def test_lista_de_temas_ida_y_vuelta(tmp_path):
     ruta = tmp_path / "temas.txt"
     escribir_lista([Tema(5, 245, "Help"), Tema(250.4, 400, "tema_02")], ruta)
     temas = leer_cortes(ruta.read_text(encoding="utf-8"))
-    assert [(t.inicio, t.fin, t.nombre) for t in temas] == [(5, 245, "Help"), (250, 400, "tema_02")]
+    assert [(t.inicio, t.fin, t.nombre) for t in temas] == [(5, 245, "Help"), (250.4, 400, "tema_02")]
 
 
 def test_cli_cortar_y_mezclar(tmp_path):
@@ -238,3 +238,263 @@ def test_mezcla_punk(tmp_path):
     assert "ya viene de un ampli" in notas["05_Gtr_L.wav"]
     assert "Distorsión en paralelo" in notas["04_Bajo.wav"]
     assert "slapback" in notas["07_Voz.wav"]
+
+
+def test_fragmento_de_sesion(tmp_path):
+    from meazclador.mezcla import listar_pistas
+    from meazclador.sesion import fragmento
+
+    sesion = tmp_path / "sesion"
+    reales = _sesion_simulada(sesion, tmp_path)
+    archivos = listar_pistas(sesion)
+    audio, sr = fragmento(archivos, reales[0][0], reales[0][0] + 5)
+    assert audio.shape == (2, 5 * sr)
+    assert 0.85 < np.max(np.abs(audio)) <= 0.9 + 1e-6
+    final, _ = fragmento(archivos, reales[-1][1] + 3, reales[-1][1] + 60)  # pasado el final: se corta
+    assert final.shape[0] == 2 and np.isfinite(final).all()
+
+
+def test_reproductor_sabe_por_donde_va(monkeypatch):
+    import sys
+    import types
+
+    from meazclador import reproductor
+
+    tocado = {}
+    falso = types.SimpleNamespace(play=lambda datos, sr: tocado.update(n=len(datos), sr=sr),
+                                  stop=lambda: tocado.update(parado=True))
+    monkeypatch.setitem(sys.modules, "sounddevice", falso)
+    r = reproductor.Reproductor()
+    assert r.reproducir(np.zeros((2, 48000 * 3), dtype=np.float32), 48000, desde_s=100.0) is None
+    assert tocado["n"] == 48000 * 3 and tocado["sr"] == 48000
+    assert 100.0 <= r.posicion() < 101.0
+    r.parar()
+    assert r.posicion() is None and tocado["parado"]
+
+
+def test_panel_de_sesion(tmp_path, monkeypatch):
+    tk = pytest.importorskip("tkinter")
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        pytest.skip("sin pantalla")
+    import time
+
+    from meazclador import gui, gui_sesion
+
+    sesion = tmp_path / "sesion"
+    reales = _sesion_simulada(sesion, tmp_path)
+    avisos = []
+    for nombre in ("showinfo", "showwarning", "showerror"):
+        monkeypatch.setattr(gui.messagebox, nombre, lambda *a, n=nombre: avisos.append((n, a[1])))
+        monkeypatch.setattr(gui_sesion.messagebox, nombre, lambda *a, n=nombre: avisos.append((n, a[1])))
+    monkeypatch.setattr(gui_sesion.messagebox, "askyesno", lambda *a: True)
+    monkeypatch.setattr(gui_sesion.simpledialog, "askstring", lambda *a, **k: "Help")
+
+    app = gui.App(raiz)
+    raiz.geometry("900x900")
+    p = app.panel_sesion
+    escuchado = []
+    p.reproductor.reproducir = lambda audio, sr, desde: escuchado.append((desde, audio.shape[1] / sr))
+
+    def esperar():
+        raiz.update()
+        while app.trabajando:
+            raiz.update()
+            time.sleep(0.02)
+        raiz.update()
+
+    try:
+        p.sesion.set(str(sesion))
+        p.min_tema.set(10)
+        p.analizar()
+        esperar()
+        assert len(p.temas) == 3 and p.mapa.find_all()  # el mapa se dibujó
+
+        # Sensibilidad muy alta: los temas se recalculan al instante (sin volver a leer los archivos).
+        p.sensibilidad.set(0.95)
+        p._redetectar()
+        assert len(p.temas) != 3 or p.temas[0].inicio > reales[0][0]
+        p.sensibilidad.set(0.45)
+        p._redetectar()
+        assert len(p.temas) == 3
+
+        # Clic en el mapa en el medio del tema 2: marca, lo selecciona y suena desde ahí.
+        medio = (reales[1][0] + reales[1][1]) / 2
+        p._clic_mapa(type("E", (), {"x": p._x(medio)})())
+        assert p._elegido() == 1 and abs(escuchado[-1][0] - medio) < 1
+
+        # Ajustes a mano.
+        inicio = p.temas[1].inicio
+        p.mover("inicio", 1)
+        assert p.temas[1].inicio == pytest.approx(inicio + 1)
+        assert escuchado[-1][0] == pytest.approx(p.temas[1].inicio - 2)  # escucha el nuevo inicio
+        p.renombrar()
+        assert p.temas[1].nombre == "Help"
+        p.dividir()
+        assert len(p.temas) == 4 and p.temas[2].inicio == pytest.approx(p.marca)
+        p.unir()
+        assert len(p.temas) == 3 and p.temas[1].fin == pytest.approx(reales[1][1], abs=4)
+
+        p.cortar()
+        esperar()
+        carpetas = sorted(d.name for d in (sesion / "temas").iterdir() if d.is_dir())
+        assert carpetas == ["02_Help", "tema_01", "tema_03"]
+        assert ("showinfo", "Temas cortados. Ahora podés mezclarlos en la pestaña 2.") in avisos
+    finally:
+        raiz.destroy()
+
+
+def test_sacar_sala_baja_la_cola_y_no_el_directo():
+    from scipy.signal import fftconvolve
+
+    from meazclador.efectos import desreverberar
+
+    sr = 48000
+    rng = np.random.default_rng(0)
+    seco = np.zeros(sr * 6, dtype=np.float32)
+    for k in range(6):
+        n = int(0.2 * sr)
+        seco[k * sr: k * sr + n] = rng.standard_normal(n) * np.hanning(n) * 0.3
+    cola = rng.standard_normal(2 * sr) * np.exp(-np.arange(2 * sr) / sr * 3 * np.log(10) / 0.8) * 0.03
+    sala = (seco + fftconvolve(seco, cola)[: len(seco)]).astype(np.float32)[None, :]
+    seca = desreverberar(sala, 0.6)
+
+    def nivel(x, a, b):
+        return 10 * np.log10(np.mean(x[0][int(a * sr): int(b * sr)] ** 2))
+
+    assert seca.shape == sala.shape and np.isfinite(seca).all()
+    assert nivel(seca, 2.0, 2.2) - nivel(sala, 2.0, 2.2) > -3.5  # el sonido directo casi no cambia
+    assert nivel(seca, 2.3, 2.8) - nivel(sala, 2.3, 2.8) < -5  # la habitación baja bastante
+
+
+def test_retoques_mueven_el_balance():
+    from meazclador.analisis import Pista
+    from meazclador.mezcla import Proyecto, Retoques, combinar
+
+    sr = 48000
+    t = np.arange(sr * 4) / sr
+    voz = (0.1 * np.sin(2 * np.pi * 1000 * t))[None, :].astype(np.float32)
+    gtr = (0.1 * np.sin(2 * np.pi * 300 * t))[None, :].astype(np.float32)
+
+    def proporcion(retoques):
+        proyecto = Proyecto([Pista("Voz.wav", voz.copy(), rol="voz"), Pista("Gtr.wav", gtr.copy(), rol="guitarra")],
+                            "natural", None, None)
+        res = combinar(proyecto, retoques, avisar=lambda _: None)
+        espectro = np.abs(np.fft.rfft(res.premaster[0]))
+        f = np.fft.rfftfreq(res.premaster.shape[1], 1 / sr)
+        return 20 * np.log10(espectro[np.argmin(np.abs(f - 1000))] / espectro[np.argmin(np.abs(f - 300))])
+
+    assert proporcion(Retoques(voz=6)) - proporcion(Retoques()) == pytest.approx(6, abs=0.3)
+    assert proporcion(Retoques(guitarras=-3)) - proporcion(Retoques()) == pytest.approx(3, abs=0.3)
+
+
+def test_retocar_una_mezcla_guardada(tmp_path):
+    from meazclador import demo
+    from meazclador.cli import main as cli
+    from meazclador.mezcla import Retoques
+
+    demo.main(tmp_path / "tema")
+    assert cli(["mezclar", str(tmp_path / "tema"), "--estilo", "punk"]) == 0
+    mezcla = tmp_path / "tema" / "mezcla"
+    assert (mezcla / "proyecto.json").is_file() and len(list((mezcla / "pistas_procesadas").glob("*.flac"))) == 7
+    antes = (mezcla / "master.wav").read_bytes()
+
+    assert cli(["retocar", str(tmp_path / "tema"), "--voz", "3", "--reverb", "0", "--presencia", "0.9"]) == 0
+    assert (mezcla / "master_anterior.wav").read_bytes() == antes
+    assert (mezcla / "master.wav").read_bytes() != antes
+    r = Retoques.cargar(mezcla / "retoques.json")
+    assert (r.voz, r.reverb, r.presencia) == (3.0, 0.0, 0.9)
+    informe = (mezcla / "informe.txt").read_text(encoding="utf-8")
+    assert "Retoques: voz +3.0 dB, reverb 0%, presencia 90%" in informe and "Presencia 90%" in informe
+
+    # Un segundo retoque parte del anterior; volver a mezclar conserva los retoques.
+    assert cli(["retocar", str(tmp_path / "tema"), "--coros", "-1"]) == 0
+    r = Retoques.cargar(mezcla / "retoques.json")
+    assert (r.voz, r.coros) == (3.0, -1.0)
+    assert cli(["mezclar", str(tmp_path / "tema"), "--estilo", "punk"]) == 0
+    assert "Retoques: voz +3.0 dB" in (mezcla / "informe.txt").read_text(encoding="utf-8")
+
+
+def _app_de_prueba(monkeypatch):
+    tk = pytest.importorskip("tkinter")
+    try:
+        raiz = tk.Tk()
+    except tk.TclError:
+        pytest.skip("sin pantalla")
+    from meazclador import gui, gui_retoque, gui_sesion
+
+    avisos = []
+    for modulo in (gui, gui_sesion, gui_retoque):
+        for nombre in ("showinfo", "showwarning", "showerror"):
+            monkeypatch.setattr(modulo.messagebox, nombre, lambda *a, n=nombre: avisos.append((n, a[1])))
+    app = gui.App(raiz)
+    return raiz, app, avisos
+
+
+def _esperar(raiz, app, limite=120):
+    import time
+
+    fin = time.monotonic() + limite
+    raiz.update()
+    while app.trabajando and time.monotonic() < fin:
+        raiz.update()
+        time.sleep(0.02)
+    raiz.update()
+    assert not app.trabajando, "el trabajo no terminó a tiempo"
+
+
+def test_boton_cancelar_corta_la_mezcla(tmp_path, monkeypatch):
+    import time
+
+    from meazclador import demo
+
+    raiz, app, avisos = _app_de_prueba(monkeypatch)
+    try:
+        demo.main(tmp_path / "tema")
+        app._correr(["mezclar", str(tmp_path / "tema"), "--estilo", "punk"])
+        inicio = time.monotonic()
+        while app.proceso is None or app.proceso.poll() is not None and time.monotonic() - inicio < 10:
+            raiz.update()
+            time.sleep(0.02)
+        assert str(app.btn_cancelar["state"]) == "normal"
+        app.cancelar()
+        _esperar(raiz, app, limite=10)
+        registro = app.registro.get("1.0", "end")
+        assert "Cancelado" in registro
+        assert not (tmp_path / "tema" / "mezcla" / "master.wav").exists()
+        assert str(app.btn_cancelar["state"]) == "disabled"
+        assert not [a for a in avisos if a[0] == "showerror"]
+    finally:
+        raiz.destroy()
+
+
+def test_pestana_retocar(tmp_path, monkeypatch):
+    from meazclador import demo
+    from meazclador.cli import main as cli
+    from meazclador.mezcla import Retoques
+
+    demo.main(tmp_path / "temas" / "01_Help")
+    assert cli(["mezclar", str(tmp_path / "temas" / "01_Help"), "--estilo", "punk"]) == 0
+    raiz, app, avisos = _app_de_prueba(monkeypatch)
+    try:
+        p = app.panel_retoque
+        escuchado = []
+        p.reproductor.reproducir = lambda audio, sr, desde: escuchado.append((desde, audio.shape))
+        p.carpeta.set(str(tmp_path / "temas"))
+        p.buscar_mezclas()
+        assert p.tema.get() == "01_Help"
+        assert p.vars["presencia"].get() == pytest.approx(0.6)  # la del estilo punk
+        p.vars["voz"].set(2.5)
+        p.vars["reverb"].set(0.5)
+        p.aplicar()
+        _esperar(raiz, app)
+        r = Retoques.cargar(tmp_path / "temas" / "01_Help" / "mezcla" / "retoques.json")
+        assert (r.voz, r.reverb) == (2.5, 0.5)
+        assert escuchado and escuchado[-1][0] == 0.0  # tema de 16 s: 0:30 no existe, arranca desde el principio
+        assert escuchado[-1][1] == (2, 16 * 48000)
+        p.escuchar("master_anterior.wav")
+        assert len(escuchado) == 2
+        assert not [a for a in avisos if a[0] == "showerror"]
+    finally:
+        raiz.destroy()
