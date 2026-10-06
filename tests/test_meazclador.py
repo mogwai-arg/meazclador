@@ -659,3 +659,88 @@ def test_eq_de_master_corrige_sonido_latoso():
     assert "brillo (8000 Hz) +" in texto and "aire (16000 Hz) +" in texto  # devuelve el aire
     _, notas_disco = balance_tonal(disco, objetivo)
     assert len(notas_disco) <= 2  # un disco ya equilibrado casi no se toca
+
+
+def _bateria_en_vivo(sr=48000, segundos=20):
+    """Bombo en 1 y 3, redoblante en 2 y 4 (grabado en el canal 'hi hat'), un tom que casi no
+    toca, y toda la banda colándose en todos los micrófonos."""
+    rng = np.random.default_rng(9)
+    n = sr * segundos
+    banda = rng.standard_normal(n) * 0.01  # lo que se cuela de todo
+
+    def golpes(tiempos, f0, decae):
+        y = np.zeros(n)
+        t = np.arange(int(0.3 * sr)) / sr
+        g = np.sin(2 * np.pi * f0 * t) * np.exp(-t * decae) + 0.3 * rng.standard_normal(len(t)) * np.exp(-t * 40)
+        for s in tiempos:
+            i = int(s * sr)
+            y[i:i + len(g)] += g[: n - i]
+        return y
+
+    negra = 0.6
+    bombo = golpes(np.arange(0, segundos - 1, 2 * negra), 60, 12) + banda
+    redo = golpes(np.arange(negra, segundos - 1, 2 * negra), 220, 25) + banda
+    tom = golpes([5.0, 5.15, 12.0, 12.2], 120, 10) + banda * 3
+    return [x[None, :].astype(np.float32) for x in (bombo, redo, tom)]
+
+
+def test_redoblante_en_canal_con_otro_nombre():
+    from meazclador.analisis import Pista, verificar_redoblante
+
+    bombo, redo, tom = _bateria_en_vivo()
+    pistas = [Pista("05-bombo.wav", bombo, rol="bombo"), Pista("10-hi hat.wav", redo, rol="hihat"),
+              Pista("02-tambor.wav", tom, rol="caja")]
+    nota = verificar_redoblante(pistas)
+    assert nota and "10-hi hat.wav" in nota
+    assert [p.rol for p in pistas] == ["bombo", "caja", "toms"]
+    # Si los nombres ya estaban bien, no se toca nada.
+    pistas = [Pista("bombo.wav", bombo, rol="bombo"), Pista("caja.wav", redo, rol="caja"),
+              Pista("tom.wav", tom, rol="toms")]
+    assert verificar_redoblante(pistas) is None and pistas[1].rol == "caja"
+
+
+def test_microfono_de_voz_sin_canto_se_silencia(tmp_path):
+    import soundfile as sf
+
+    from meazclador.analisis import Pista, elegir_voz_principal, silenciar_voces_vacias
+    from meazclador.mezcla import Opciones, mezclar
+
+    principal, coro1, _ = _voces_de_banda()
+    rng = np.random.default_rng(4)
+    vacio = (rng.standard_normal(principal.shape) * 0.005).astype(np.float32)  # sólo la banda colándose
+    pistas = [Pista("11-voz.wav", principal, rol="voz"), Pista("06-coro-principal.wav", coro1, rol="coros"),
+              Pista("12-coro-secundario.wav", vacio, rol="coros")]
+    assert silenciar_voces_vacias(pistas) == ["'12-coro-secundario.wav' no canta en este tema: silenciada."]
+    cambio, _ = elegir_voz_principal(pistas)
+    assert not cambio and pistas[0].rol == "voz"  # la pista vacía nunca gana como 'voz principal'
+
+    tema = tmp_path / "tema"
+    tema.mkdir()
+    for p in pistas:
+        sf.write(tema / p.nombre, p.audio[0], 48000)
+    res = mezclar(tema, Opciones(estilo="punk", afinar=0), avisar=lambda _: None)
+    roles = {p.nombre: (p.rol, p.silenciada) for p in res.pistas}
+    assert roles["11-voz.wav"] == ("voz", False) and roles["12-coro-secundario.wav"][1] is True
+
+
+def test_overhead_que_es_sala_y_compuerta_de_toms():
+    from meazclador.analisis import Pista, separar_sala
+    from meazclador.dinamica import compuerta
+
+    sr = 48000
+    rng = np.random.default_rng(1)
+    brillante = rng.standard_normal((1, sr * 4)).astype(np.float32) * 0.1  # platillos: todo el espectro
+    t = np.arange(sr * 4) / sr
+    grave = (0.1 * np.sin(2 * np.pi * 150 * t))[None, :].astype(np.float32)
+    pistas = [Pista("13-over 1.wav", brillante, rol="overheads"), Pista("01-over 2.wav", grave, rol="overheads")]
+    assert separar_sala(pistas) == "Tratadas como micrófono de sala: 01-over 2.wav."
+    assert [p.rol for p in pistas] == ["overheads", "sala"]
+
+    _, _, tom = _bateria_en_vivo()
+    limpio = compuerta(tom)
+
+    def nivel(x, a, b):
+        return 10 * np.log10(np.mean(x[0][int(a * sr): int(b * sr)] ** 2))
+
+    assert nivel(limpio, 5.0, 5.3) - nivel(tom, 5.0, 5.3) > -1  # el golpe del tom pasa entero
+    assert nivel(limpio, 8, 11) - nivel(tom, 8, 11) < -25  # entre golpes, la banda que se cuela no

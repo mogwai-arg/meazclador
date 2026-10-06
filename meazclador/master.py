@@ -10,10 +10,13 @@ from .analisis import espectro
 from .audio import SR_TRABAJO, desde_db, lufs, pico_real, rms_corto
 from .dinamica import filtro_paso_alto, saturacion
 
-# Bandas de una octava para comparar y corregir el balance tonal del máster.
-OCTAVAS = [63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-NOMBRES_OCTAVA = {63: "sub-graves", 125: "graves", 250: "cuerpo", 500: "medios-graves", 1000: "medios",
-                  2000: "medios-altos", 4000: "presencia", 8000: "brillo", 16000: "aire"}
+# Bandas de media octava para comparar y corregir el balance tonal del máster (media octava
+# alcanza para ver, por ejemplo, el sonido 'a caja de cartón' de 700 Hz entre 500 y 1000).
+OCTAVAS = [63, 90, 125, 180, 250, 355, 500, 710, 1000, 1400, 2000, 2800, 4000, 5600, 8000, 11300, 16000]
+NOMBRES_OCTAVA = {63: "sub-graves", 90: "graves", 125: "graves", 180: "cuerpo", 250: "cuerpo", 355: "barro",
+                  500: "medios-graves", 710: "caja de cartón", 1000: "medios", 1400: "medios",
+                  2000: "medios-altos", 2800: "medios-altos", 4000: "presencia", 5600: "presencia",
+                  8000: "brillo", 11300: "aire", 16000: "aire"}
 # Cuánto puede corregir como máximo cada banda (en los extremos se va con más cuidado).
 MAXIMO_OCTAVA = {63: 3.0, 16000: 2.5}
 
@@ -23,7 +26,7 @@ def _perfil(f: np.ndarray, p_db: np.ndarray) -> np.ndarray:
     ref = p_db[(f >= 500) & (f < 2000)].mean()
     niveles = []
     for fc in OCTAVAS:
-        sel = (f >= fc / np.sqrt(2)) & (f < fc * np.sqrt(2))
+        sel = (f >= fc / 2 ** 0.25) & (f < fc * 2 ** 0.25)
         niveles.append(p_db[sel].mean() - ref)
     return np.array(niveles)
 
@@ -38,7 +41,7 @@ def perfil_objetivo(referencia: np.ndarray | None) -> tuple[np.ndarray, str]:
 
 def balance_tonal(mezcla: np.ndarray, objetivo: np.ndarray, fuerza: float = 0.8, maximo: float = 4.0
                   ) -> tuple[list, list[str]]:
-    """EQ de máster por octavas: lleva cada banda hacia el objetivo (sin pasarse).
+    """EQ de máster por medias octavas: lleva cada banda hacia el objetivo (sin pasarse).
 
     Detecta, por ejemplo, un exceso de 2-5 kHz (sonido 'latoso', de teléfono) y la falta de
     aire arriba de 6 kHz, y los corrige a la vez.
@@ -55,7 +58,7 @@ def balance_tonal(mezcla: np.ndarray, objetivo: np.ndarray, fuerza: float = 0.8,
         elif fc == OCTAVAS[-1]:
             filtros.append(HighShelfFilter(cutoff_frequency_hz=11000, gain_db=dif, q=0.7))
         else:
-            filtros.append(PeakFilter(cutoff_frequency_hz=fc, gain_db=dif, q=1.4))
+            filtros.append(PeakFilter(cutoff_frequency_hz=fc, gain_db=dif, q=2.0))
         notas.append(f"EQ de máster: {NOMBRES_OCTAVA[fc]} ({fc} Hz) {dif:+.1f} dB.")
     return filtros, notas
 

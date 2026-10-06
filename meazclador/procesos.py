@@ -22,7 +22,7 @@ from pedalboard import (
 
 from .analisis import Pista
 from .audio import SR_TRABAJO, desde_db, nivel_activo, rms_corto
-from .dinamica import de_esser, expansor, saturacion
+from .dinamica import compuerta, de_esser, expansor, saturacion
 from .efectos import (amplificador, bajo_gruñon, cargar_sample, desreverberar, es_guitarra_directa,
                       realzar_ataque, reforzar_con_sample, sample_bombo, sample_caja)
 
@@ -39,6 +39,7 @@ class Receta:
     compresion: list[tuple[float, float, float, float]] = field(default_factory=list)  # (dB bajo picos, ratio, at, rel)
     de_esser: bool = False
     expansor: bool = False
+    compuerta: bool = False  # para tambores que tocan poco: corta todo lo que se cuela entre golpes
     saturacion: float = 0.0
     reverb: float = 0.0
     # Color de estilo (0 / None = no se usa)
@@ -72,8 +73,15 @@ RECETAS: dict[str, Receta] = {
         paso_alto=60,
         eq=[("pico", 100, 2.0, 1.0), ("pico", 450, -4.0, 1.2), ("pico", 4000, 2.0, 1.0)],
         compresion=[(6, 4.0, 10, 150)],
-        expansor=True,
+        compuerta=True,
         reverb=0.10,
+    ),
+    # Micrófono de ambiente (o un overhead que capta más sala que platillos): poquito y sin graves.
+    "sala": Receta(
+        paso_alto=180,
+        paso_bajo=10000,
+        eq=[("pico", 350, -4.0, 0.9), ("pico", 700, -2.0, 1.2)],
+        compresion=[(8, 4.0, 10, 120)],
     ),
     "overheads": Receta(
         paso_alto=120,
@@ -175,7 +183,10 @@ def procesar_pista(
     audio, g = nivelar(pista.audio)
     pista.notas.append(f"Nivel de entrada ajustado {g:+.1f} dB para trabajar con margen.")
 
-    if receta.expansor:
+    if receta.compuerta:
+        audio = compuerta(audio)
+        pista.notas.append("Compuerta: se abre sólo cuando le pegan; entre golpes no suma lo que se cuela de la banda.")
+    elif receta.expansor:
         audio = expansor(audio)
         pista.notas.append("Expansor suave: baja el sonido de otros tambores que se cuela en este micrófono.")
 

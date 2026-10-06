@@ -129,6 +129,12 @@ dist/Meazclador --prueba        # autoprueba: mezcla una banda sintética
   ajustar los valores de `BALANCE` en `meazclador/mezcla.py` y `RECETAS` en `meazclador/procesos.py`.
 - La afinación funciona con voces solistas o coros por pista; no con varias voces en un mismo archivo.
 - El sampler necesita micrófonos cercanos de bombo y caja; con sólo overheads no se aplica.
+- **Verificación por contenido:** los nombres de los canales no siempre coinciden con lo que capta
+  cada micrófono (pasa mucho en consolas en vivo). Antes de mezclar se comprueba:
+  - qué pista es de verdad el redoblante (la que golpea entre los golpes del bombo);
+  - si algún overhead casi no tiene platillos (se trata como micrófono de sala, más bajo y sin graves);
+  - si algún micrófono de voz no canta en el tema (nivel parejo de lo que se cuela): se silencia.
+  Todo queda anotado en el informe. Los toms llevan compuerta para no sumar la banda entre golpes.
 - **Voz principal automática:** en cada tema se mide cuánto canta cada pista de voz. Si una pista
   llamada "coro" canta claramente más que la "voz" (por ejemplo, un tema donde canta otro integrante),
   se intercambian los papeles y queda anotado en el informe. Si las dos cantan parecido no se toca nada;

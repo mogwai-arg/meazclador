@@ -19,14 +19,15 @@ PALABRAS_CLAVE: list[tuple[str, list[str]]] = [
     ("caja", ["snare", "caja", "sn", "redo", "redoblante", "tambor", "tarola"]),
     ("hihat", ["hihat", "hh", "hat", "charles", "hi"]),
     ("toms", ["tom", "toms", "floor", "chancha", "rack"]),
-    ("overheads", ["oh", "overhead", "overheads", "over", "platos", "cymbal", "cymbals", "room", "ambiente", "amb"]),
+    ("sala", ["room", "ambiente", "amb", "sala"]),
+    ("overheads", ["oh", "overhead", "overheads", "over", "platos", "cymbal", "cymbals"]),
     ("bajo", ["bass", "bajo", "bajista", "contrabajo", "sub"]),
     ("guitarra", ["guit", "gtr", "gt", "guitar", "guitarra", "guitarras", "viola", "acustica", "electrica"]),
     ("teclado", ["key", "keys", "piano", "synth", "sinte", "teclado", "teclados", "organ", "organo", "rhodes", "pad"]),
     ("voz", ["vox", "voz", "vocal", "vocals", "lead", "cantante", "voice", "canto"]),
 ]
 
-GRUPO_BATERIA = {"bombo", "caja", "hihat", "toms", "overheads"}
+GRUPO_BATERIA = {"bombo", "caja", "hihat", "toms", "overheads", "sala"}
 
 
 @dataclass
@@ -39,6 +40,7 @@ class Pista:
     resonancias: list[tuple[float, float]] = field(default_factory=list)  # (Hz, exceso dB)
     pan: float = 0.0
     envio_reverb: float = 0.0
+    silenciada: bool = False  # micrófono que en este tema sólo capta lo que se cuela (no canta)
     # Lo que se decide al combinar (se puede retocar sin volver a procesar):
     seco: np.ndarray | None = None  # la misma pista sin la sala de la habitación
     sacar_sala: float = 0.0  # cuánto de la versión seca usar por defecto (0..1)
@@ -174,6 +176,21 @@ def analizar(nombre: str, audio: np.ndarray) -> Pista:
     return pista
 
 
+RANGO_MINIMO_CANTO_DB = 14.0
+
+
+def rango_dinamico(audio: np.ndarray, sr: int = SR_TRABAJO) -> float:
+    """Diferencia (dB) entre las partes fuertes y el fondo de la pista."""
+    r = rms_corto(audio, sr, 50)
+    return float(np.percentile(r, 95) - np.percentile(r, 10))
+
+
+def solo_sangrado(audio: np.ndarray, sr: int = SR_TRABAJO) -> bool:
+    """Un micrófono de voz donde nadie canta en este tema: su nivel es parejo todo el tiempo
+    (sólo capta la banda que se cuela). Cuando alguien canta, hay 15-30 dB entre frases y pausas."""
+    return rango_dinamico(audio, sr) < RANGO_MINIMO_CANTO_DB
+
+
 def actividad_de_canto(audio: np.ndarray, sr: int = SR_TRABAJO) -> float:
     """Fracción del tema (0..1) en la que esta pista de voz está cantando.
 
@@ -182,8 +199,8 @@ def actividad_de_canto(audio: np.ndarray, sr: int = SR_TRABAJO) -> float:
     """
     r = rms_corto(audio, sr, 50)
     referencia = np.percentile(r, 95)
-    if referencia < -60:
-        return 0.0
+    if referencia < -60 or solo_sangrado(audio, sr):
+        return 0.0  # sin canto: nivel parejo de lo que se cuela, no frases
     canta = (r > referencia - 12).astype(float)
     # Las frases tienen respiraciones y consonantes: se rellenan huecos de hasta ~0.5 s.
     canta = uniform_filter1d(canta, size=10) > 0.25
@@ -201,8 +218,8 @@ def elegir_voz_principal(pistas: list[Pista], margen: float = 1.3) -> tuple[bool
     los papeles. Devuelve (cambió, explicación). La explicación siempre dice cuánto canta
     cada pista, así se entiende la decisión.
     """
-    voces = [p for p in pistas if p.rol == "voz"]
-    coros = [p for p in pistas if p.rol == "coros"]
+    voces = [p for p in pistas if p.rol == "voz" and not p.silenciada]
+    coros = [p for p in pistas if p.rol == "coros" and not p.silenciada]
     if not voces or not coros:
         return False, None
     act = {id(p): actividad_de_canto(p.audio) for p in voces + coros}
@@ -219,6 +236,7 @@ def elegir_voz_principal(pistas: list[Pista], margen: float = 1.3) -> tuple[bool
 
 
 def _poner_voz_principal(pistas: list[Pista], elegida: Pista) -> None:
+    elegida.silenciada = False  # si la eligieron a mano, tiene que sonar
     for p in pistas:
         if p.rol in ROLES_VOZ and p is not elegida and p.rol == "voz":
             p.rol = "coros"
@@ -238,3 +256,99 @@ def forzar_voz_principal(pistas: list[Pista], nombre: str) -> str:
         raise ValueError(f"No encuentro la pista de voz '{nombre}'. Pistas de voz de este tema: {nombres}")
     _poner_voz_principal(pistas, elegida)
     return f"Voz principal elegida a mano: '{elegida.nombre}'."
+
+
+# ---------------------------------------------------------------- verificación por contenido
+
+
+def silenciar_voces_vacias(pistas: list[Pista]) -> list[str]:
+    """Micrófonos de voz o coro que en este tema no cantan: se silencian (sólo sumarían ruido y banda)."""
+    notas = []
+    for p in pistas:
+        if p.rol in ROLES_VOZ and solo_sangrado(p.audio):
+            p.silenciada = True
+            rango = rango_dinamico(p.audio)
+            p.notas.append(f"En este tema no canta (nivel parejo, {rango:.0f} dB de rango: sólo se cuela la banda). "
+                           "Silenciada.")
+            notas.append(f"'{p.nombre}' no canta en este tema: silenciada.")
+    return notas
+
+
+def _golpes(audio: np.ndarray, sr: int = SR_TRABAJO) -> np.ndarray:
+    from scipy.signal import find_peaks
+
+    env = uniform_filter1d(np.abs(a_mono(audio)), max(1, int(sr * 0.003)))
+    picos, _ = find_peaks(env, height=float(np.max(env)) * 10 ** (-15 / 20), distance=int(sr * 0.08))
+    return picos
+
+
+def _perfil_tambor(audio: np.ndarray, bombo: np.ndarray, sr: int = SR_TRABAJO) -> tuple[float, float, float]:
+    """(golpes por segundo, fracción que coincide con el bombo, centroide en los golpes)."""
+    picos = _golpes(audio, sr)
+    if len(picos) < 4:
+        return 0.0, 1.0, 0.0
+    duracion = audio.shape[1] / sr
+    coinciden = float(np.mean([np.min(np.abs(bombo - p)) < sr * 0.015 for p in picos])) if len(bombo) else 0.0
+    mono = a_mono(audio)
+    tramos = np.concatenate([mono[p:p + int(0.06 * sr)] for p in picos[:300]])
+    f, pot = welch(tramos, sr, nperseg=2048)
+    return len(picos) / duracion, coinciden, float(np.sum(f * pot) / (np.sum(pot) + 1e-20))
+
+
+def _parece_redoblante(golpes_s: float, con_bombo: float, centroide: float) -> bool:
+    # El redoblante marca el ritmo (golpes regulares) y cae entre los golpes del bombo. Su sonido
+    # se centra entre ~150 Hz (micrófono opaco, mucho cuerpo) y ~4 kHz (mucho 'crack'); un hi-hat
+    # real está más arriba y acompaña al bombo.
+    return 0.5 <= golpes_s <= 5 and con_bombo < 0.25 and 120 <= centroide <= 4000
+
+
+def verificar_redoblante(pistas: list[Pista]) -> str | None:
+    """Comprueba que la pista tratada como caja sea de verdad el redoblante.
+
+    En consolas en vivo los canales a veces quedan con otro nombre (por ejemplo, el redoblante
+    grabado en el canal 'hi hat'). Si la 'caja' no se comporta como redoblante y otra pista de
+    batería sí, se corrigen los papeles.
+    """
+    bombos = [p for p in pistas if p.rol == "bombo"]
+    if not bombos:
+        return None
+    golpes_bombo = _golpes(bombos[0].audio)
+    candidatas = [p for p in pistas if p.rol in ("caja", "hihat", "toms")]
+    perfiles = {id(p): _perfil_tambor(p.audio, golpes_bombo) for p in candidatas}
+    cajas = [p for p in candidatas if p.rol == "caja"]
+    if any(_parece_redoblante(*perfiles[id(p)]) for p in cajas):
+        return None
+    otras = [p for p in candidatas if p.rol != "caja" and _parece_redoblante(*perfiles[id(p)])]
+    if not otras:
+        return None
+    redoblante = max(otras, key=lambda p: perfiles[id(p)][0])
+    g, c, cent = perfiles[id(redoblante)]
+    for p in cajas:
+        p.rol = "toms" if perfiles[id(p)][0] < 0.5 else "otros"
+        p.rol_por = "sonido"
+        p.notas.append(f"Se llama como redoblante pero casi no golpea ({perfiles[id(p)][0]:.1f} golpes/s): "
+                       f"se la trata como {p.rol}.")
+    anterior = redoblante.rol
+    redoblante.rol, redoblante.rol_por = "caja", "sonido"
+    redoblante.notas.append(f"Por cómo suena es el REDOBLANTE ({g:.1f} golpes/s, {c:.0%} junto al bombo, "
+                            f"cuerpo en {cent:.0f} Hz), no {anterior}: se la trata como caja.")
+    return (f"Redoblante detectado en '{redoblante.nombre}' (golpea entre los golpes del bombo); "
+            "los nombres de los canales no coincidían.")
+
+
+def separar_sala(pistas: list[Pista]) -> str | None:
+    """Si hay dos overheads y uno casi no tiene platillos (sólo graves de la sala), es un micrófono
+    de ambiente: se lo trata como 'sala' (más bajo y sin graves) para que no embarre."""
+    overs = [p for p in pistas if p.rol == "overheads"]
+    if len(overs) < 2:
+        return None
+    centros = {id(p): centroide(p.audio) for p in overs}
+    brillante = max(centros.values())
+    cambiadas = []
+    for p in overs:
+        if centros[id(p)] < 0.6 * brillante:
+            p.rol, p.rol_por = "sala", "sonido"
+            p.notas.append(f"Casi no capta platillos (centro de su sonido en {centros[id(p)]:.0f} Hz contra "
+                           f"{brillante:.0f} Hz del otro overhead): se la trata como micrófono de sala.")
+            cambiadas.append(p.nombre)
+    return f"Tratadas como micrófono de sala: {', '.join(cambiadas)}." if cambiadas else None

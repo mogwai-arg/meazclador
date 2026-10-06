@@ -13,8 +13,9 @@ import soundfile as sf
 from pedalboard import Compressor, Pedalboard, Reverb
 
 from .afinacion import afinar
-from .analisis import (GRUPO_BATERIA, ROLES_VOZ, Pista, analizar, elegir_voz_principal, espectro,
-                       forzar_voz_principal, polaridad_invertida)
+from .analisis import (GRUPO_BATERIA, ROLES_VOZ, Pista, analizar, centroide, elegir_voz_principal, espectro,
+                       forzar_voz_principal, polaridad_invertida, separar_sala, silenciar_voces_vacias,
+                       verificar_redoblante)
 from .audio import SR_TRABAJO, Cancelado, a_estereo, cargar, desde_db, guardar, igualar_largo, nivel_activo, rms_corto
 from .dinamica import filtro_paso_alto, filtro_paso_bajo
 from .efectos import eco_corto
@@ -24,7 +25,7 @@ from .procesos import RECETAS, RECETAS_PUNK, procesar_pista
 # Nivel de cada instrumento respecto de la voz principal (dB). Es el "balance" de la mezcla.
 BALANCE = {
     "voz": 0.0, "bombo": -1.0, "caja": -2.0, "bajo": -2.0, "guitarra": -4.0, "teclado": -6.0,
-    "toms": -6.0, "overheads": -9.0, "hihat": -12.0, "coros": -8.0, "otros": -6.0,
+    "toms": -6.0, "overheads": -9.0, "sala": -15.0, "hihat": -12.0, "coros": -8.0, "otros": -6.0,
 }
 NIVEL_VOZ = -24.0
 
@@ -88,7 +89,7 @@ GRUPOS_RETOQUE = {
     "coros": ("coros",),
     "guitarras": ("guitarra", "teclado"),
     "bajo": ("bajo",),
-    "bateria": ("bombo", "caja", "hihat", "toms", "overheads"),
+    "bateria": ("bombo", "caja", "hihat", "toms", "overheads", "sala"),
     "otros": ("otros",),
 }
 
@@ -252,7 +253,7 @@ def _procesar_voces(pistas: list[Pista], opciones: Opciones, avisar, cancelar=la
     if fuerza <= 0:
         return
     for p in pistas:
-        if p.rol in ROLES_VOZ:
+        if p.rol in ROLES_VOZ and not p.silenciada:
             if cancelar():
                 raise Cancelado()
             avisar(f"Afinando {p.nombre}...")
@@ -275,7 +276,13 @@ def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: F
     avisar(f"Cargando {len(archivos)} pistas...")
     audios = igualar_largo([cargar(a) for a in archivos])
     pistas = [analizar(a.name, x) for a, x in zip(archivos, audios)]
-    notas: list[str] = []
+    notas: list[str] = silenciar_voces_vacias(pistas)
+    for verificacion in (verificar_redoblante, separar_sala):
+        nota = verificacion(pistas)
+        if nota:
+            notas.append(nota)
+    for nota in notas:
+        avisar(nota)
     if voz_principal:
         nota = forzar_voz_principal(pistas, voz_principal)
     else:
@@ -285,7 +292,8 @@ def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: F
         notas.append(nota)
 
     # Fase: un micrófono en contrafase con los overheads le roba graves y pegada a la batería.
-    overheads = [p for p in pistas if p.rol == "overheads"]
+    # Referencia: el overhead con más platillos (agudos); otro puede ser un micrófono de sala.
+    overheads = sorted((p for p in pistas if p.rol == "overheads"), key=lambda p: -centroide(p.audio))
     if overheads:
         for p in pistas:
             if p.rol in ("bombo", "caja", "toms") and polaridad_invertida(p.audio, overheads[0].audio):
@@ -315,13 +323,16 @@ def combinar(proyecto: Proyecto, retoques: Retoques | None = None, avisar=print)
 
     cuenta: dict[str, int] = defaultdict(int)
     for p in pistas:
-        cuenta[p.rol] += 1
-    tiene_voz = any(p.rol == "voz" for p in pistas)
+        if not p.silenciada:
+            cuenta[p.rol] += 1
+    tiene_voz = any(p.rol == "voz" and not p.silenciada for p in pistas)
     largo = max(p.audio.shape[1] for p in pistas)
     bateria, resto = [], []
     envio = np.zeros((2, largo), dtype=np.float32)
     secas = []
     for p in pistas:
+        if p.silenciada:
+            continue
         audio = p.audio
         if p.seco is not None:
             cuanto = float(np.clip(p.sacar_sala * retoques.sala, 0, 1.5))
@@ -395,7 +406,7 @@ def guardar_proyecto(proyecto: Proyecto, destino: Path) -> None:
         datos["pistas"].append({"archivo": archivo, "seco": seco, "nombre": p.nombre, "rol": p.rol,
                                 "rol_por": p.rol_por, "pan": p.pan, "envio_reverb": p.envio_reverb,
                                 "sacar_sala": p.sacar_sala, "eco": list(p.eco) if p.eco else None,
-                                "notas": p.notas})
+                                "silenciada": p.silenciada, "notas": p.notas})
     (destino / ARCHIVO_PROYECTO).write_text(json.dumps(datos, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -413,7 +424,8 @@ def cargar_proyecto(destino: Path) -> Proyecto:
         pistas.append(Pista(nombre=d["nombre"], audio=leer(d["archivo"]), rol=d["rol"], rol_por=d["rol_por"],
                             notas=d["notas"], pan=d["pan"], envio_reverb=d["envio_reverb"],
                             seco=leer(d["seco"]) if d.get("seco") else None,
-                            sacar_sala=d.get("sacar_sala", 0.0), eco=tuple(d["eco"]) if d.get("eco") else None))
+                            sacar_sala=d.get("sacar_sala", 0.0), eco=tuple(d["eco"]) if d.get("eco") else None,
+                            silenciada=d.get("silenciada", False)))
     referencia = Path(datos["referencia"]) if datos.get("referencia") else None
     return Proyecto(pistas, datos["estilo"], datos.get("lufs"), referencia, datos.get("notas", []),
                     datos.get("opciones", {"estilo": datos["estilo"]}))
@@ -437,6 +449,7 @@ def cambiar_voz_principal(proyecto: Proyecto, destino: Path, nombre: str, avisar
         avisar(f"Cargando {p.nombre}...")
         audio = cargar(ruta)[:, :largo]
         nuevas.append(analizar(p.nombre, np.pad(audio, ((0, 0), (0, largo - audio.shape[1])))))
+    silenciar_voces_vacias(nuevas)
     nota = forzar_voz_principal(nuevas, nombre)
     avisar(nota)
     _procesar_voces(nuevas, opciones, avisar)

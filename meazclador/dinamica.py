@@ -84,3 +84,24 @@ def filtro_paso_bajo(audio: np.ndarray, frec: float, sr: int = SR_TRABAJO) -> np
 def filtro_paso_alto(audio: np.ndarray, frec: float, sr: int = SR_TRABAJO) -> np.ndarray:
     sos = butter(2, frec, btype="highpass", fs=sr, output="sos")
     return sosfilt(sos, audio, axis=1).astype(np.float32)
+
+
+def compuerta(audio: np.ndarray, sr: int = SR_TRABAJO, debajo_de_golpes_db: float = 15,
+              rango_db: float = 30, mantener_ms: float = 250) -> np.ndarray:
+    """Compuerta para micrófonos de tambores que tocan poco (toms): se abre en cada golpe y el
+    resto del tiempo baja `rango_db`, así no suman el sonido de toda la banda que se cuela.
+
+    El umbral se mide desde los golpes de la propia pista (no desde el pico máximo), y la
+    compuerta se queda abierta `mantener_ms` para no cortar la cola del tambor.
+    """
+    env = _envolvente(audio.mean(axis=0), sr, 5)
+    env_db = db(env)
+    golpes = float(np.percentile(env_db, 99.7))
+    abierta = (env_db > golpes - debajo_de_golpes_db).astype(np.float32)
+    n = max(1, int(sr * mantener_ms / 1000))
+    abierta = maximum_filter1d(abierta, size=n, origin=(n - 1) // 2)  # queda abierta después del golpe
+    m = max(1, int(sr * 0.01))
+    abierta = maximum_filter1d(abierta, size=m, origin=-(m // 2))  # y abre 10 ms antes
+    g_db = (abierta - 1) * rango_db
+    g = _suavizar_ganancia(desde_db_arr(g_db), sr, 4, "max")
+    return (audio * g).astype(np.float32)
