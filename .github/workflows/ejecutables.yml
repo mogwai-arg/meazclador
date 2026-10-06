@@ -1,0 +1,93 @@
+# Arma Meazclador.exe (Windows) y Meazclador.app (Mac), los prueba y los publica
+# en la página de descargas (Releases) como "Última versión".
+name: Ejecutables
+
+on:
+  push:
+    branches: [main, master, "claude/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  armar:
+    needs: tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            nombre: Windows
+          - os: macos-latest
+            nombre: macOS
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install . pyinstaller
+      - run: pyinstaller --noconfirm meazclador.spec
+
+      - name: Autoprueba del ejecutable (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\Meazclador.exe -ArgumentList '--prueba' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "La autoprueba falló ($($p.ExitCode))" }
+          Copy-Item dist\Meazclador.exe Meazclador-Windows.exe
+
+      - name: Autoprueba del ejecutable (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          ./dist/Meazclador.app/Contents/MacOS/Meazclador --prueba
+          ditto -c -k --keepParent dist/Meazclador.app Meazclador-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Meazclador-${{ matrix.nombre }}
+          path: |
+            Meazclador-Windows.exe
+            Meazclador-macOS.zip
+          if-no-files-found: error
+
+  publicar:
+    needs: armar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: descargas
+          merge-multiple: true
+      - name: Mover la etiqueta "ultima-version" a este commit
+        run: |
+          git tag -f ultima-version
+          git push -f origin ultima-version
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ultima-version
+          name: Meazclador - última versión
+          prerelease: true
+          body: |
+            **Windows:** bajá `Meazclador-Windows.exe` y abrilo con doble clic. Si aparece
+            "Windows protegió su PC", tocá *Más información* → *Ejecutar de todas formas*
+            (pasa con todo programa que no está firmado digitalmente).
+
+            **Mac (Apple Silicon M1/M2/M3/M4):** bajá `Meazclador-macOS.zip`, descomprimilo y
+            arrastrá `Meazclador.app` a Aplicaciones. La primera vez abrilo con clic derecho → *Abrir*.
+
+            Commit: ${{ github.sha }}
+          files: descargas/*
+          fail_on_unmatched_files: true

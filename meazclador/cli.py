@@ -11,7 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from .mezcla import Opciones, exportar, listar_pistas, mezclar
+from .mezcla import ESTILOS, Opciones, exportar, listar_pistas, mezclar
 from .sesion import a_reloj, cortar, detectar_temas, energia, escribir_lista, info_pistas, leer_cortes
 
 CARPETAS_SALIDA = {"mezcla", "masters"}
@@ -21,9 +21,16 @@ def _opciones_mezcla() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=False)
     g = p.add_argument_group("mezcla")
     g.add_argument("--referencia", type=Path, help="tema de un disco que te guste: se imita su sonido y volumen")
-    g.add_argument("--lufs", type=float, default=-14.0, help="volumen final (-14 Spotify/YouTube, -9 muy fuerte)")
-    g.add_argument("--afinar", type=float, default=0.0, metavar="FUERZA",
-                   help="afinar voces y coros, de 0 a 1 (recomendado 0.5; 0 = no tocar)")
+    g.add_argument("--estilo", choices=list(ESTILOS), default="natural",
+                   help="natural (limpio) o punk (crudo, estilo Ramones)")
+    g.add_argument("--lufs", type=float, help="volumen final (-14 Spotify/YouTube, -10 rock fuerte; "
+                   "por defecto lo decide el estilo)")
+    g.add_argument("--afinar", type=float, metavar="FUERZA",
+                   help="afinar voces y coros, de 0 a 1 (0 = no tocar; por defecto lo decide el estilo)")
+    g.add_argument("--guitarras", choices=["auto", "directas", "amplificadas"], default="auto",
+                   help="cómo se grabaron: directas (por línea/DI, se les simula el ampli) o amplificadas")
+    g.add_argument("--sample-bombo", type=Path, help="WAV de un golpe de bombo para el sampler (estilo punk)")
+    g.add_argument("--sample-caja", type=Path, help="WAV de un golpe de caja para el sampler (estilo punk)")
     g.add_argument("--tonalidad", help="tonalidad para afinar mejor, ej: Am, E, 'La menor' (sólo si mezclás un tema)")
     return p
 
@@ -43,10 +50,12 @@ def _mezclar_uno(carpeta: Path, opciones: Opciones, destino: Path) -> Path:
 
 
 def cmd_mezclar(args) -> int:
-    if not 0 <= args.afinar <= 1:
+    if args.afinar is not None and not 0 <= args.afinar <= 1:
         print("--afinar va de 0 a 1", file=sys.stderr)
         return 1
-    opciones = Opciones(afinar=args.afinar, tonalidad=args.tonalidad, lufs=args.lufs, referencia=args.referencia)
+    opciones = Opciones(afinar=args.afinar, tonalidad=args.tonalidad, lufs=args.lufs, referencia=args.referencia,
+                        estilo=args.estilo, sample_bombo=args.sample_bombo, sample_caja=args.sample_caja,
+                        guitarras=args.guitarras)
     if listar_pistas(args.carpeta):
         _mezclar_uno(args.carpeta, opciones, args.salida or args.carpeta / "mezcla")
         return 0

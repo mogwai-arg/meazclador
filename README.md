@@ -25,41 +25,66 @@ Después masteriza: graves en mono, balance tonal comparado con una curva de dis
 rock/pop (o con **un tema de referencia tuyo**), compresión de "pegamento", saturación
 suave y limitador true-peak hasta el volumen elegido (-14 LUFS por defecto).
 
-## Instalación
+## Instalación (sin saber programar)
 
-Necesitás Python 3.10 o más nuevo.
+1. Entrá a la página de descargas del repositorio en GitHub (**Releases → "Meazclador - última versión"**).
+2. **Windows:** bajá `Meazclador-Windows.exe` y abrilo con doble clic. Si aparece *"Windows protegió
+   su PC"*, tocá *Más información* → *Ejecutar de todas formas* (le pasa a todo programa sin firma digital).
+   Tarda unos segundos en abrir la primera vez.
+3. **Mac (M1/M2/M3/M4):** bajá `Meazclador-macOS.zip`, descomprimilo, arrastrá `Meazclador.app` a
+   Aplicaciones y la primera vez abrilo con clic derecho → *Abrir*.
+
+Los ejecutables se arman y se prueban solos en GitHub cada vez que cambia el código
+(`.github/workflows/ejecutables.yml`).
+
+## Uso con la ventana
+
+**Pestaña 1 · Cortar la grabación larga.** Si grabaron un ensayo o un show entero (por ejemplo
+40 minutos, un WAV por micrófono), elegí esa carpeta y tocá *Buscar temas*. Aparece la lista de
+temas con sus tiempos: corregí lo que haga falta, ponele nombre a cada tema (`0:12  3:05  Help`)
+y tocá *Cortar temas*. Los archivos se leen de a pedazos, así que no importa que pesen varios GB.
+Si junta dos temas, bajá la *sensibilidad*; si deja charla adentro, subila.
+
+**Pestaña 2 · Mezclar y masterizar.** Elegí la carpeta de un tema o la carpeta `temas` para
+mezclarlos todos. Elegí el estilo y tocá *Mezclar y masterizar*. Cada tema queda en
+`tema/mezcla/master.wav` y además todos juntos en `temas/masters/`.
+
+## Estilos
+
+| | Natural | Punk (Ramones) |
+|---|---|---|
+| Guitarras | EQ y compresión | Si se grabaron **por línea (DI)**: simulador de ampli británico saturado + gabinete 4x12. Si ya tienen ampli: saturación extra. Abiertas a izquierda y derecha: pared de guitarras. |
+| Bajo | Compresión | Distorsión en paralelo: graves limpios + medios con gruñido que se oyen entre las guitarras. |
+| Batería | Compresión de bus y paralela | **Sampler**: cada golpe de bombo y caja se refuerza con un sample (incorporado o el tuyo), respetando la fuerza de cada golpe. Realce de ataque y compresión paralela más fuerte. |
+| Voz | Afinación opcional | **Sólo se corrigen las notas que se pasan de 35 cents**; el resto queda intacto, con su suciedad. Eco corto (slapback) en vez de reverb larga. |
+| Coros | Abiertos, con reverb | Abiertos, comprimidos y saturados (coro de pandilla). |
+| Volumen | -14 LUFS | -10 LUFS, con clipper suave antes del limitador. |
+
+Para que el sampler funcione bien, el bombo y la caja tienen que tener su propio micrófono
+(`Bombo.wav`, `Caja.wav`). Podés usar tus propios samples (un WAV con un solo golpe).
+
+## Uso desde la consola (opcional)
 
 ```bash
 pip install -e .
+
+# cortar una sesión larga en temas (deja SESION/temas/ y una lista editable temas.txt)
+meazclador cortar sesion_ensayo/
+meazclador cortar sesion_ensayo/ --cortes sesion_ensayo/temas/temas.txt   # con tus correcciones
+
+# mezclar todos los temas en estilo punk
+meazclador mezclar sesion_ensayo/temas --estilo punk
+
+# un tema, con su tonalidad, samples propios y un tema de referencia
+meazclador mezclar temas/03_Help --estilo punk --tonalidad A \
+    --sample-bombo mis_samples/bombo.wav --sample-caja mis_samples/caja.wav \
+    --referencia "referencias/Blitzkrieg Bop.wav"
+
+# si la detección de guitarras se equivoca
+meazclador mezclar temas/03_Help --estilo punk --guitarras directas
 ```
 
-## Cómo preparar las pistas
-
-- Exportá **todas las pistas desde el mismo punto de inicio** (el compás 1), así quedan sincronizadas.
-- Una pista por archivo, **sin efectos** (ni reverb ni compresión), y con picos por debajo de -6 dBFS.
-- Ponele a cada archivo **un nombre que diga qué es**: `Bombo.wav`, `Caja.wav`, `OH L.wav`,
-  `Bajo.wav`, `Guitarra 1.wav`, `Guitarra 2.wav`, `Voz.wav`, `Coros.wav`, `Piano.wav`…
-  (en inglés también sirve: `Kick`, `Snare`, `Gtr`, `Lead Vox`, `BV`…).
-  Si no reconoce un nombre, lo trata como "otros" y lo aclara en el informe.
-
-## Uso
-
-```bash
-# mezcla básica
-meazclador pistas/mi_tema
-
-# con afinación de voces (0 = nada, 1 = máxima) y la tonalidad del tema
-meazclador pistas/mi_tema --afinar 0.5 --tonalidad Am
-
-# imitando el sonido y el volumen de un disco que te guste
-meazclador pistas/mi_tema --referencia "referencias/tema_favorito.wav"
-
-# más fuerte (rock pesado) o más dinámico
-meazclador pistas/mi_tema --lufs -10
-meazclador pistas/mi_tema --lufs -16
-```
-
-En `pistas/mi_tema/mezcla/` quedan:
+En la carpeta de cada tema, `mezcla/` contiene:
 
 | Archivo | Para qué |
 |---|---|
@@ -67,11 +92,14 @@ En `pistas/mi_tema/mezcla/` quedan:
 | `premaster.wav` | La mezcla sin masterizar, con margen, por si la querés mandar a un estudio de mastering. |
 | `informe.txt` | Qué se hizo en cada pista y por qué. |
 
-¿No tenés pistas a mano? Generá una banda de prueba sintética:
+¿No tenés pistas a mano? `python -m meazclador.demo demo/pistas` genera una banda sintética de prueba.
+
+## Armar el ejecutable a mano
 
 ```bash
-python scripts/generar_demo.py demo/pistas
-meazclador demo/pistas --afinar 0.5 --tonalidad Am
+pip install . pyinstaller
+pyinstaller meazclador.spec     # deja dist/Meazclador(.exe)
+dist/Meazclador --prueba        # autoprueba: mezcla una banda sintética
 ```
 
 ## Límites
@@ -82,6 +110,7 @@ meazclador demo/pistas --afinar 0.5 --tonalidad Am
   escuchar. Escuchá el resultado; si algo no te convence (más voz, menos reverb…) se pueden
   ajustar los valores de `BALANCE` en `meazclador/mezcla.py` y `RECETAS` en `meazclador/procesos.py`.
 - La afinación funciona con voces solistas o coros por pista; no con varias voces en un mismo archivo.
+- El sampler necesita micrófonos cercanos de bombo y caja; con sólo overheads no se aplica.
 
 ## Tests
 

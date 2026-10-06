@@ -158,3 +158,83 @@ def test_cli_cortar_y_mezclar(tmp_path):
     masters = sorted((sesion / "temas" / "masters").glob("*.wav"))
     assert [m.name for m in masters] == ["tema_01.wav", "tema_02.wav", "tema_03.wav"]
     assert (sesion / "temas" / "temas.txt").exists()
+
+
+def _guitarra_directa(sr=48000, segundos=4):
+    """Guitarra limpia por línea: cuerdas pulsadas (Karplus-Strong simplificado) con ataque de púa."""
+    t = np.arange(int(sr * segundos)) / sr
+    y = np.zeros_like(t)
+    for i, f in enumerate([110, 146.8, 196, 246.9] * 2):
+        a = int(i * 0.5 * sr)
+        tt = t[: len(t) - a]
+        y[a:] += sum(np.sin(2 * np.pi * f * k * tt) / k ** 1.5 for k in range(1, 12)) * np.exp(-tt * 3)
+    return (0.3 * y / np.max(np.abs(y)))[None, :].astype(np.float32)
+
+
+def test_amplificador_distorsiona_y_corta_agudos():
+    from meazclador.analisis import energia_bandas
+    from meazclador.efectos import amplificador, es_guitarra_directa, planitud_espectral
+
+    di = _guitarra_directa()
+    assert es_guitarra_directa(di)
+    amp = amplificador(di, 0.8)
+    assert np.isfinite(amp).all()
+    assert planitud_espectral(amp) > 0.04  # la distorsión rellena el espectro entre armónicos
+    assert not es_guitarra_directa(amp)  # una guitarra ya amplificada no se vuelve a amplificar
+    assert energia_bandas(amp)["agudos (>6k)"] < -25  # el gabinete corta el 'fizz'
+
+
+def test_sampler_respeta_cada_golpe():
+    from meazclador.efectos import detectar_golpes, reforzar_con_sample, sample_bombo
+
+    sr = 48000
+    golpe = sample_bombo(sr)[0][: sr // 4]
+    pista = np.zeros(sr * 4, dtype=np.float32)
+    tiempos = [0.1, 0.6, 1.1, 1.6, 2.1, 2.6, 3.1]
+    for i, t in enumerate(tiempos):
+        fuerza = 1.0 if i % 2 == 0 else 0.5
+        pista[int(t * sr): int(t * sr) + len(golpe)] += golpe * fuerza
+    pista += 0.01 * np.random.default_rng(0).standard_normal(len(pista)).astype(np.float32)  # sangrado
+    inicios, fuerzas = detectar_golpes(pista[None, :], sr)
+    assert len(inicios) == len(tiempos)
+    assert np.all(np.abs(inicios / sr - np.array(tiempos)) < 0.005)
+    assert fuerzas[1] < fuerzas[0]
+    salida, n = reforzar_con_sample(pista[None, :], sample_bombo(sr), 0.5, sr)
+    assert n == len(tiempos) and np.isfinite(salida).all()
+
+
+def test_afinar_solo_notas_muy_desafinadas():
+    from meazclador.afinacion import afinar
+
+    sr = 48000
+
+    def nota(cents):
+        t = np.arange(sr) / sr
+        f0 = 440 * 2 ** (cents / 1200) * (1 + 0.006 * np.sin(2 * np.pi * 5.5 * t))
+        return sum(np.sin(k * 2 * np.pi * np.cumsum(f0) / sr) / k for k in range(1, 10)) * 0.2
+
+    pausa = np.zeros(int(sr * 0.4))
+    x = np.concatenate([nota(15), pausa, nota(-20), pausa, nota(45)]).astype(np.float32)
+    y, resumen = afinar(x[None, :], 0.85, "A", sr, tolerancia_cents=35)
+    assert np.array_equal(y[0][: int(2.4 * sr)], x[: int(2.4 * sr)])  # las afinadas quedan intactas
+    assert np.max(np.abs(y[0][int(2.9 * sr):] - x[int(2.9 * sr):])) > 0.1  # la desafinada se corrige
+    assert "1 notas acomodadas" in resumen
+
+
+def test_mezcla_punk(tmp_path):
+    import soundfile as sf
+
+    from meazclador import demo
+
+    demo.main(tmp_path / "pistas")
+    sf.write(tmp_path / "pistas" / "08_Guitarra_DI.wav", _guitarra_directa(demo.SR, demo.DUR)[0], demo.SR)
+    res = mezclar(tmp_path / "pistas", Opciones(estilo="punk"), avisar=lambda _: None)
+    assert np.isfinite(res.master).all()
+    assert abs(lufs(res.master) - (-10.0)) < 0.5
+    assert pico_real(res.master) <= -0.9
+    notas = {p.nombre: " ".join(p.notas) for p in res.pistas}
+    assert "Sampler" in notas["01_Kick.wav"] and "Sampler" in notas["02_Snare.wav"]
+    assert "ampli británico" in notas["08_Guitarra_DI.wav"]
+    assert "ya viene de un ampli" in notas["05_Gtr_L.wav"]
+    assert "Distorsión en paralelo" in notas["04_Bajo.wav"]
+    assert "slapback" in notas["07_Voz.wav"]

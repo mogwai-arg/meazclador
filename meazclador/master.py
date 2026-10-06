@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from scipy.signal import resample_poly
 from pedalboard import BrickwallLimiter, Compressor, HighShelfFilter, LowShelfFilter, PeakFilter, Pedalboard
 
 from .analisis import espectro
@@ -65,8 +66,22 @@ def fundidos(audio: np.ndarray, entrada_s: float = 0.01, salida_s: float = 1.5) 
     return audio
 
 
+def clipper(audio: np.ndarray, umbral_db: float = -3.0) -> np.ndarray:
+    """Recorte suave de picos, sobremuestreado x4 (como saturar una cinta o un conversor analógico).
+
+    Por debajo del umbral no toca nada; por encima redondea el pico hacia 0 dBFS. Saca los
+    picos más filosos antes del limitador, así éste trabaja menos y no 'bombea'.
+    """
+    t = desde_db(umbral_db)
+    sobre = resample_poly(audio, 4, 1, axis=1)
+    mag = np.abs(sobre)
+    curva = np.where(mag <= t, mag, t + (1 - t) * np.tanh((mag - t) / (1 - t)))
+    return resample_poly(np.sign(sobre) * curva, 1, 4, axis=1).astype(np.float32)
+
+
 def masterizar(
-    mezcla: np.ndarray, lufs_objetivo: float = -14.0, techo_db: float = -1.0, referencia: np.ndarray | None = None
+    mezcla: np.ndarray, lufs_objetivo: float = -14.0, techo_db: float = -1.0, referencia: np.ndarray | None = None,
+    usar_clipper: bool = False,
 ) -> tuple[np.ndarray, list[str]]:
     notas: list[str] = []
     audio = graves_en_mono(mezcla)
@@ -91,10 +106,19 @@ def masterizar(
     # Ajuste iterativo: subir hasta el volumen pedido con el limitador cuidando los picos.
     ganancia = lufs_objetivo - lufs(audio)
     limitador = BrickwallLimiter(ceiling_db=techo_db - 0.2, release_ms=120, lookahead_ms=5, true_peak=True)
-    salida = audio
-    for _ in range(4):
+    if usar_clipper:
+        notas.append("Clipper suave antes del limitador: los picos se redondean como en una cinta (sonido crudo y fuerte).")
+
+    def cadena(g: float) -> np.ndarray:
+        x = audio * desde_db(g)
+        if usar_clipper:
+            x = clipper(x)
         limitador.reset()
-        salida = limitador(audio * desde_db(ganancia), SR_TRABAJO)
+        return limitador(x, SR_TRABAJO)
+
+    salida = audio
+    for _ in range(8):
+        salida = cadena(ganancia)
         error = lufs_objetivo - lufs(salida)
         if abs(error) < 0.2:
             break
@@ -108,6 +132,6 @@ def masterizar(
     reduccion = ganancia - (lufs(salida) - lufs(audio))
     notas.append(f"Volumen final: {lufs(salida):.1f} LUFS, pico real {pico:.1f} dBTP.")
     if reduccion > 4:
-        notas.append(f"Aviso: el limitador trabaja fuerte (~{reduccion:.1f} dB). Si suena aplastado, "
-                     "probá con --lufs -16.")
+        notas.append(f"Aviso: el volumen se consigue recortando ~{reduccion:.1f} dB de picos. Si suena "
+                     "aplastado, probá con un volumen final más bajo (--lufs -12 o -14).")
     return salida.astype(np.float32), notas

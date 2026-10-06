@@ -68,7 +68,23 @@ def _regiones(mono: np.ndarray, sr: int, max_seg: float = 12.0) -> list[tuple[in
     return regiones
 
 
-def _afinar_region(x: np.ndarray, sr: int, fuerza: float, permitidas: list[int] | None) -> tuple[np.ndarray, list[float]]:
+def _desvios_por_nota(desvio: np.ndarray, min_cuadros: int = 16) -> list[float]:
+    """Desvío medio (cents) de cada tramo corregido de al menos ~80 ms (una nota, no un roce)."""
+    notas, inicio = [], None
+    for i, d in enumerate(np.append(desvio, 0)):
+        if d != 0 and inicio is None:
+            inicio = i
+        elif d == 0 and inicio is not None:
+            if i - inicio >= min_cuadros:
+                notas.append(float(np.mean(np.abs(desvio[inicio:i])) * 100))
+            else:
+                desvio[inicio:i] = 0  # roces muy cortos (deslizamientos) quedan naturales
+            inicio = None
+    return notas
+
+
+def _afinar_region(x: np.ndarray, sr: int, fuerza: float, permitidas: list[int] | None,
+                   tolerancia: float = 0.1) -> tuple[np.ndarray, list[float]]:
     f0, t = pw.dio(x, sr, f0_floor=65, f0_ceil=1100, frame_period=PERIODO_MS)
     f0 = pw.stonemask(x, f0, t, sr)
     sonoro = f0 > 0
@@ -83,9 +99,10 @@ def _afinar_region(x: np.ndarray, sr: int, fuerza: float, permitidas: list[int] 
     objetivo = _nota_mas_cercana(centro[sonoro], permitidas)
     desvio = np.zeros_like(f0)
     desvio[sonoro] = objetivo - centro[sonoro]
-    desvio[np.abs(desvio) < 0.1] = 0  # menos de 10 cents: se deja como está
+    desvio[np.abs(desvio) < tolerancia] = 0  # dentro de la tolerancia: se deja como está
+    notas = _desvios_por_nota(desvio)
     desvio = uniform_filter1d(desvio, size=24) * sonoro  # transiciones de ~120 ms
-    if not np.any(np.abs(desvio) > 0.05):
+    if not notas:
         return x, []
 
     f0_nuevo = f0 * 2 ** (fuerza * desvio / 12)
@@ -97,18 +114,23 @@ def _afinar_region(x: np.ndarray, sr: int, fuerza: float, permitidas: list[int] 
     # Sólo se reemplaza donde hubo corrección: consonantes y respiraciones quedan originales.
     usa = uniform_filter1d((np.abs(desvio) > 0.05).astype(float), size=6)
     curva = np.interp(np.arange(len(x)), t * sr, usa)
-    return (1 - curva) * x + curva * y, list(np.abs(desvio[desvio != 0]) * 100)
+    return (1 - curva) * x + curva * y, notas
 
 
-def afinar(audio: np.ndarray, fuerza: float = 0.6, tonalidad: str | None = None, sr: int = SR_TRABAJO
-           ) -> tuple[np.ndarray, str]:
-    """fuerza 0..1 (0 = nada, 1 = al centro exacto de la nota). Devuelve (audio, resumen)."""
+def afinar(audio: np.ndarray, fuerza: float = 0.6, tonalidad: str | None = None, sr: int = SR_TRABAJO,
+           tolerancia_cents: float = 10) -> tuple[np.ndarray, str]:
+    """fuerza 0..1 (0 = nada, 1 = al centro exacto de la nota).
+
+    tolerancia_cents: las notas que se desvían menos que esto no se tocan. Con 30-40 cents
+    sólo se acomodan las notas claramente desafinadas y el resto conserva su carácter.
+    Devuelve (audio, resumen).
+    """
     permitidas = escala(tonalidad)
     mono = a_mono(audio).astype(np.float64)
     salida = mono.copy()
     cents: list[float] = []
     for a, b in _regiones(mono, sr):
-        tramo, c = _afinar_region(np.ascontiguousarray(mono[a:b]), sr, fuerza, permitidas)
+        tramo, c = _afinar_region(np.ascontiguousarray(mono[a:b]), sr, fuerza, permitidas, tolerancia_cents / 100)
         salida[a:b] = tramo
         cents.extend(c)
     if audio.shape[0] == 2:
@@ -117,8 +139,9 @@ def afinar(audio: np.ndarray, fuerza: float = 0.6, tonalidad: str | None = None,
     else:
         resultado = salida[None, :].astype(np.float32)
     if cents:
-        resumen = (f"Afinación natural (fuerza {fuerza:.0%}): desafinación media {np.mean(cents):.0f} cents, "
-                   f"máxima {np.max(cents):.0f} cents. Vibrato y expresión conservados.")
+        resumen = (f"Afinación (fuerza {fuerza:.0%}, tolerancia {tolerancia_cents:.0f} cents): "
+                   f"{len(cents)} notas acomodadas (desafinación media {np.mean(cents):.0f} cents, "
+                   f"máxima {np.max(cents):.0f}). El resto quedó intacto; vibrato y expresión conservados.")
     else:
-        resumen = "Afinación: la voz ya estaba afinada, no se tocó."
+        resumen = (f"Afinación: ninguna nota se pasaba de {tolerancia_cents:.0f} cents, no se tocó nada.")
     return resultado.astype(np.float32), resumen

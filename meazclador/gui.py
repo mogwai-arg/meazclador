@@ -14,8 +14,19 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import __version__
 from .cli import main as cli
+from .mezcla import ESTILOS
 
+ESTILOS_GUI = {
+    "Punk (crudo, estilo Ramones)": "punk",
+    "Natural (limpio)": "natural",
+}
+GUITARRAS = {
+    "Detectar solo": "auto",
+    "Por línea / DI (simular el ampli)": "directas",
+    "Con ampli microfoneado": "amplificadas",
+}
 VOLUMENES = {
+    "Según el estilo": None,
     "Normal: Spotify / YouTube (-14 LUFS)": -14.0,
     "Fuerte: rock pesado (-10 LUFS)": -10.0,
     "Dinámico: más aire, menos aplastado (-16 LUFS)": -16.0,
@@ -53,7 +64,7 @@ class App(ttk.Frame):
         self.trabajando = False
         self.ultima_salida: Path | None = None
         raiz.title(f"Meazclador {__version__}")
-        raiz.minsize(720, 640)
+        raiz.minsize(760, 760)
         self.grid(sticky="nsew")
         raiz.columnconfigure(0, weight=1)
         raiz.rowconfigure(0, weight=1)
@@ -130,28 +141,43 @@ class App(ttk.Frame):
         self.carpeta = tk.StringVar()
         self._fila_carpeta(f, 1, "Carpeta:", self.carpeta)
 
-        ttk.Label(f, text="Afinar voces:").grid(row=2, column=0, sticky="w", pady=4)
-        self.afinar = tk.DoubleVar(value=0.0)
+        ttk.Label(f, text="Estilo:").grid(row=2, column=0, sticky="w", pady=4)
+        self.estilo = tk.StringVar(value=next(iter(ESTILOS_GUI)))
+        combo = ttk.Combobox(f, textvariable=self.estilo, values=list(ESTILOS_GUI), state="readonly")
+        combo.grid(row=2, column=1, sticky="ew", padx=6)
+        combo.bind("<<ComboboxSelected>>", lambda _: self._estilo_elegido())
+
+        ttk.Label(f, text="Guitarras grabadas:").grid(row=3, column=0, sticky="w", pady=4)
+        self.guitarras = tk.StringVar(value=next(iter(GUITARRAS)))
+        ttk.Combobox(f, textvariable=self.guitarras, values=list(GUITARRAS), state="readonly").grid(
+            row=3, column=1, sticky="ew", padx=6)
+
+        ttk.Label(f, text="Afinar voces:").grid(row=4, column=0, sticky="w", pady=4)
+        self.afinar = tk.DoubleVar(value=ESTILOS["punk"].afinar)
         ttk.Scale(f, from_=0, to=1, variable=self.afinar,
-                  command=lambda _: self.txt_afinar.set(self._texto_afinar())).grid(row=2, column=1, sticky="ew", padx=6)
+                  command=lambda _: self.txt_afinar.set(self._texto_afinar())).grid(row=4, column=1, sticky="ew", padx=6)
         self.txt_afinar = tk.StringVar(value=self._texto_afinar())
-        ttk.Label(f, textvariable=self.txt_afinar, width=14).grid(row=2, column=2)
+        ttk.Label(f, textvariable=self.txt_afinar, width=18).grid(row=4, column=2)
 
-        ttk.Label(f, text="Tonalidad (opcional):").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(f, text="Tonalidad (opcional):").grid(row=5, column=0, sticky="w", pady=4)
         self.tonalidad = tk.StringVar()
-        ttk.Entry(f, textvariable=self.tonalidad, width=12).grid(row=3, column=1, sticky="w", padx=6)
-        ttk.Label(f, text="ej: Am, E, La menor", foreground="gray").grid(row=3, column=2)
+        ttk.Entry(f, textvariable=self.tonalidad, width=12).grid(row=5, column=1, sticky="w", padx=6)
+        ttk.Label(f, text="ej: Am, E, La menor", foreground="gray").grid(row=5, column=2)
 
-        ttk.Label(f, text="Volumen final:").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Label(f, text="Volumen final:").grid(row=6, column=0, sticky="w", pady=4)
         self.volumen = tk.StringVar(value=next(iter(VOLUMENES)))
         ttk.Combobox(f, textvariable=self.volumen, values=list(VOLUMENES), state="readonly").grid(
-            row=4, column=1, sticky="ew", padx=6)
+            row=6, column=1, sticky="ew", padx=6)
 
         self.referencia = tk.StringVar()
-        self._fila_carpeta(f, 5, "Tema de referencia (opcional):", self.referencia, archivo=True)
+        self._fila_carpeta(f, 7, "Tema de referencia (opcional):", self.referencia, archivo=True)
+        self.sample_bombo = tk.StringVar()
+        self._fila_carpeta(f, 8, "Sample de bombo (opcional):", self.sample_bombo, archivo=True)
+        self.sample_caja = tk.StringVar()
+        self._fila_carpeta(f, 9, "Sample de caja (opcional):", self.sample_caja, archivo=True)
 
         botones = ttk.Frame(f)
-        botones.grid(row=6, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        botones.grid(row=10, column=0, columnspan=3, sticky="w", pady=(12, 0))
         self.btn_mezclar = ttk.Button(botones, text="🎚  Mezclar y masterizar", command=self.mezclar)
         self.btn_mezclar.pack(side="left")
         self.btn_abrir = ttk.Button(botones, text="📂  Abrir resultados", state="disabled",
@@ -161,7 +187,16 @@ class App(ttk.Frame):
 
     def _texto_afinar(self) -> str:
         v = self.afinar.get()
-        return "no tocar" if v < 0.05 else f"{v:.0%}" + (" (natural)" if v <= 0.6 else " (marcado)")
+        if v < 0.05:
+            return "no tocar"
+        if ESTILOS_GUI.get(self.estilo.get()) == "punk":
+            return f"{v:.0%} (sólo desafinadas)"
+        return f"{v:.0%}" + (" (natural)" if v <= 0.6 else " (marcado)")
+
+    def _estilo_elegido(self) -> None:
+        estilo = ESTILOS[ESTILOS_GUI[self.estilo.get()]]
+        self.afinar.set(estilo.afinar if estilo.afinar else 0.0)
+        self.txt_afinar.set(self._texto_afinar())
 
     # ---------- trabajos ----------
 
@@ -261,11 +296,13 @@ class App(ttk.Frame):
         if not carpeta:
             return
         args = ["mezclar", str(carpeta), "--afinar", f"{self.afinar.get():.2f}",
-                "--lufs", str(VOLUMENES[self.volumen.get()])]
-        if self.tonalidad.get().strip():
-            args += ["--tonalidad", self.tonalidad.get().strip()]
-        if self.referencia.get().strip():
-            args += ["--referencia", self.referencia.get().strip()]
+                "--estilo", ESTILOS_GUI[self.estilo.get()], "--guitarras", GUITARRAS[self.guitarras.get()]]
+        if VOLUMENES[self.volumen.get()] is not None:
+            args += ["--lufs", str(VOLUMENES[self.volumen.get()])]
+        for opcion, var in (("--tonalidad", self.tonalidad), ("--referencia", self.referencia),
+                            ("--sample-bombo", self.sample_bombo), ("--sample-caja", self.sample_caja)):
+            if var.get().strip():
+                args += [opcion, var.get().strip()]
 
         def listo():
             mezcla = carpeta / "mezcla"

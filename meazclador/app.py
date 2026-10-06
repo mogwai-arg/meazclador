@@ -20,8 +20,10 @@ def autoprueba() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         pistas = Path(tmp) / "pistas"
         demo.main(pistas)
-        codigo = cli(["mezclar", str(pistas), "--afinar", "0.5", "--tonalidad", "Am"])
-        ok = codigo == 0 and (pistas / "mezcla" / "master.wav").stat().st_size > 100_000
+        ok = True
+        for estilo in ("natural", "punk"):
+            codigo = cli(["mezclar", str(pistas), "--estilo", estilo, "--afinar", "0.5", "--tonalidad", "Am"])
+            ok = ok and codigo == 0 and (pistas / "mezcla" / "master.wav").stat().st_size > 100_000
     print("AUTOPRUEBA OK" if ok else "AUTOPRUEBA FALLÓ")
     return 0 if ok else 1
 
