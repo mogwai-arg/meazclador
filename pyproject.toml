@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meazclador"
+version = "0.1.0"
+description = "Mezcla y masterización automática de pistas multipista"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "soundfile>=0.12",
+    "pedalboard>=0.9.10",
+    "pyloudnorm>=0.1.1",
+    "pyworld>=0.3.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+meazclador = "meazclador.cli:main"
+
+[tool.setuptools]
+packages = ["meazclador"]
