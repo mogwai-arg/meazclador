@@ -1,7 +1,7 @@
 """Genera pistas sintéticas de una 'banda' para probar meazclador sin grabaciones reales.
 
-    python scripts/generar_demo.py demo/pistas
-    python -m meazclador demo/pistas --afinar 0.5 --tonalidad Am
+    python -m meazclador.demo demo/pistas
+    python -m meazclador mezclar demo/pistas --afinar 0.5 --tonalidad Am
 """
 
 import sys

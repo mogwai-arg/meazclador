@@ -53,6 +53,18 @@ def graves_en_mono(audio: np.ndarray, frec: float = 120) -> np.ndarray:
     return np.vstack([medio + lado, medio - lado]).astype(np.float32)
 
 
+def fundidos(audio: np.ndarray, entrada_s: float = 0.01, salida_s: float = 1.5) -> np.ndarray:
+    """Entrada sin clic y final que se apaga suave (útil en temas cortados de una sesión)."""
+    audio = audio.copy()
+    n_in = min(int(SR_TRABAJO * entrada_s), audio.shape[1] // 4)
+    n_out = min(int(SR_TRABAJO * salida_s), audio.shape[1] // 4)
+    if n_in:
+        audio[:, :n_in] *= np.linspace(0, 1, n_in, dtype=np.float32)
+    if n_out:
+        audio[:, -n_out:] *= np.cos(np.linspace(0, np.pi / 2, n_out, dtype=np.float32)) ** 2
+    return audio
+
+
 def masterizar(
     mezcla: np.ndarray, lufs_objetivo: float = -14.0, techo_db: float = -1.0, referencia: np.ndarray | None = None
 ) -> tuple[np.ndarray, list[str]]:
@@ -92,6 +104,7 @@ def masterizar(
     if pico > techo_db:
         salida = salida * desde_db(techo_db - pico - 0.05)
         pico = pico_real(salida)
+    salida = fundidos(salida)
     reduccion = ganancia - (lufs(salida) - lufs(audio))
     notas.append(f"Volumen final: {lufs(salida):.1f} LUFS, pico real {pico:.1f} dBTP.")
     if reduccion > 4:
