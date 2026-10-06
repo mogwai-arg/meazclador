@@ -13,7 +13,7 @@ import soundfile as sf
 from pedalboard import Compressor, Pedalboard, Reverb
 
 from .afinacion import afinar
-from .analisis import GRUPO_BATERIA, Pista, analizar, espectro, polaridad_invertida
+from .analisis import GRUPO_BATERIA, Pista, analizar, elegir_voz_principal, espectro, polaridad_invertida
 from .audio import SR_TRABAJO, Cancelado, a_estereo, cargar, desde_db, guardar, igualar_largo, nivel_activo, rms_corto
 from .dinamica import filtro_paso_alto, filtro_paso_bajo
 from .master import masterizar
@@ -239,6 +239,11 @@ def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: F
     avisar(f"Cargando {len(archivos)} pistas...")
     audios = igualar_largo([cargar(a) for a in archivos])
     pistas = [analizar(a.name, x) for a, x in zip(archivos, audios)]
+    notas: list[str] = []
+    cambio = elegir_voz_principal(pistas)
+    if cambio:
+        avisar(cambio)
+        notas.append(cambio)
 
     # Fase: un micrófono en contrafase con los overheads le roba graves y pegada a la batería.
     overheads = [p for p in pistas if p.rol == "overheads"]
@@ -265,7 +270,7 @@ def procesar(carpeta: Path, opciones: Opciones, avisar=print, cancelar=lambda: F
             raise Cancelado()
         avisar(f"Procesando {p.nombre} ({p.rol})...")
         p.audio = procesar_pista(p, extra.get(i), estilo.recetas, samples, opciones.guitarras)
-    return Proyecto(pistas, opciones.estilo, opciones.lufs, opciones.referencia)
+    return Proyecto(pistas, opciones.estilo, opciones.lufs, opciones.referencia, notas)
 
 
 def combinar(proyecto: Proyecto, retoques: Retoques | None = None, avisar=print) -> Resultado:

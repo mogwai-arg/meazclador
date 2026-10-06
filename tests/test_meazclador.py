@@ -498,3 +498,67 @@ def test_pestana_retocar(tmp_path, monkeypatch):
         assert not [a for a in avisos if a[0] == "showerror"]
     finally:
         raiz.destroy()
+
+
+def _voces_de_banda(sr=48000, segundos=40):
+    """Principal: canta frases en todo el tema. Coros: sólo en los estribillos.
+    Todas con la batería colándose en el micrófono (~25 dB abajo)."""
+    rng = np.random.default_rng(5)
+    n = sr * segundos
+    t = np.arange(n) / sr
+    bateria = np.zeros(n)
+    for golpe in np.arange(0, segundos, 0.25):
+        i = int(golpe * sr)
+        k = min(n - i, int(0.1 * sr))
+        bateria[i:i + k] += rng.standard_normal(k) * np.exp(-np.arange(k) / sr * 40)
+    bateria *= 0.3 * 10 ** (-25 / 20)
+
+    def cantar(tramos):
+        y = np.zeros(n)
+        for a, b in tramos:
+            for frase in np.arange(a, b, 3.0):  # frases de 2.5 s con respiración de 0.5 s
+                i, j = int(frase * sr), int(min(frase + 2.5, b) * sr)
+                f0 = 220 * (1 + 0.01 * np.sin(2 * np.pi * 5 * t[i:j]))
+                y[i:j] = 0.3 * sum(np.sin(2 * np.pi * k * np.cumsum(f0) / sr) / k for k in range(1, 8))
+        return (y + bateria)[None, :].astype(np.float32)
+
+    estribillos = [(10, 18), (28, 36)]
+    return cantar([(2, 38)]), cantar(estribillos), cantar(estribillos)
+
+
+def test_detecta_voz_principal_cuando_cambia_en_un_tema():
+    from meazclador.analisis import Pista, actividad_de_canto, elegir_voz_principal
+
+    principal, coro1, coro2 = _voces_de_banda()
+    assert actividad_de_canto(principal) > 0.8 and actividad_de_canto(coro1) < 0.5
+
+    # Tema normal: los nombres coinciden con lo que se canta, no se toca nada.
+    pistas = [Pista("Voz.wav", principal, rol="voz"), Pista("Coro 1.wav", coro1, rol="coros"),
+              Pista("Coro 2.wav", coro2, rol="coros")]
+    assert elegir_voz_principal(pistas) is None
+    assert [p.rol for p in pistas] == ["voz", "coros", "coros"]
+
+    # Tema 10: el que canta todo está en la pista 'Coro 1' y la 'Voz' hace los coros.
+    pistas = [Pista("Voz.wav", coro2, rol="voz"), Pista("Coro 1.wav", principal, rol="coros"),
+              Pista("Coro 2.wav", coro1, rol="coros")]
+    explicacion = elegir_voz_principal(pistas)
+    assert explicacion and "Coro 1.wav" in explicacion
+    assert [p.rol for p in pistas] == ["coros", "voz", "coros"]
+    assert "VOZ PRINCIPAL" in " ".join(pistas[1].notas)
+
+
+def test_mezcla_con_voces_intercambiadas(tmp_path):
+    import soundfile as sf
+
+    from meazclador.mezcla import Opciones, mezclar
+
+    principal, coro1, coro2 = _voces_de_banda()
+    carpeta = tmp_path / "10_Help"
+    carpeta.mkdir()
+    for nombre, audio in (("Voz.wav", coro2), ("Coro 1.wav", principal), ("Coro 2.wav", coro1)):
+        sf.write(carpeta / nombre, audio[0], 48000)
+    res = mezclar(carpeta, Opciones(estilo="punk", afinar=0), avisar=lambda _: None)
+    roles = {p.nombre: (p.rol, p.pan) for p in res.pistas}
+    assert roles["Coro 1.wav"] == ("voz", 0.0)  # la principal va al centro
+    assert roles["Voz.wav"][0] == "coros" and roles["Voz.wav"][1] != 0.0  # el coro, a un costado
+    assert any("Voz principal detectada" in n for n in res.notas_generales)

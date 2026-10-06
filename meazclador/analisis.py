@@ -10,7 +10,7 @@ import numpy as np
 from scipy.ndimage import uniform_filter1d
 from scipy.signal import correlate, stft, welch
 
-from .audio import SR_TRABAJO, a_mono, nivel_activo
+from .audio import SR_TRABAJO, a_mono, nivel_activo, rms_corto
 
 # Orden importante: lo más específico primero ("backing vocal" es coro, no voz).
 PALABRAS_CLAVE: list[tuple[str, list[str]]] = [
@@ -168,3 +168,47 @@ def analizar(nombre: str, audio: np.ndarray) -> Pista:
     if pico >= 0.999:
         pista.notas.append("Hay recortes (clipping) en la grabación original; no se pueden deshacer del todo.")
     return pista
+
+
+def actividad_de_canto(audio: np.ndarray, sr: int = SR_TRABAJO) -> float:
+    """Fracción del tema (0..1) en la que esta pista de voz está cantando.
+
+    Se mide contra el nivel de canto de la propia pista (sus partes más fuertes): el sonido de la
+    batería y las guitarras que se cuela en el micrófono queda bastante más abajo y no cuenta.
+    """
+    r = rms_corto(audio, sr, 50)
+    referencia = np.percentile(r, 95)
+    if referencia < -60:
+        return 0.0
+    canta = (r > referencia - 12).astype(float)
+    # Las frases tienen respiraciones y consonantes: se rellenan huecos de hasta ~0.5 s.
+    canta = uniform_filter1d(canta, size=10) > 0.25
+    return float(np.mean(canta))
+
+
+def elegir_voz_principal(pistas: list[Pista], margen: float = 1.3) -> str | None:
+    """Detecta si en este tema una pista de coros hace de voz principal (y al revés).
+
+    La voz principal canta casi todo el tema; los coros entran en algunas partes. Si la pista
+    llamada coro canta claramente más (`margen` veces) que la llamada voz, se intercambian
+    los papeles. Devuelve una explicación si cambió algo, o None.
+    """
+    voces = [p for p in pistas if p.rol == "voz"]
+    coros = [p for p in pistas if p.rol == "coros"]
+    if not voces or not coros:
+        return None
+    act = {id(p): actividad_de_canto(p.audio) for p in voces + coros}
+    principal = max(voces, key=lambda p: act[id(p)])
+    candidato = max(coros, key=lambda p: act[id(p)])
+    a_voz, a_coro = act[id(principal)], act[id(candidato)]
+    if a_coro < 0.25 or a_coro < a_voz * margen or a_coro - a_voz < 0.1:
+        return None
+    for p in voces:
+        p.rol = "coros"
+        p.notas.append(f"En este tema canta {a_voz:.0%} del tiempo: se la trata como coro.")
+    candidato.rol = "voz"
+    candidato.notas.append(f"En este tema canta {a_coro:.0%} del tiempo (más que la voz, {a_voz:.0%}): "
+                           "se la trata como VOZ PRINCIPAL.")
+    return (f"Voz principal detectada: '{candidato.nombre}' canta {a_coro:.0%} del tema y "
+            f"'{principal.nombre}' {a_voz:.0%}, así que se intercambian los papeles. "
+            "Si está mal, renombrá los archivos de este tema.")
