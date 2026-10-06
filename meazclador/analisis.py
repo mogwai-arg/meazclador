@@ -16,7 +16,7 @@ from .audio import SR_TRABAJO, a_mono, nivel_activo, rms_corto
 PALABRAS_CLAVE: list[tuple[str, list[str]]] = [
     ("coros", ["coro", "coros", "bv", "bvs", "backing", "choir", "harmony", "armonia", "segunda"]),
     ("bombo", ["kick", "bombo", "bd", "kik", "bassdrum"]),
-    ("caja", ["snare", "caja", "sn", "redo", "tarola"]),
+    ("caja", ["snare", "caja", "sn", "redo", "redoblante", "tambor", "tarola"]),
     ("hihat", ["hihat", "hh", "hat", "charles", "hi"]),
     ("toms", ["tom", "toms", "floor", "chancha", "rack"]),
     ("overheads", ["oh", "overhead", "overheads", "over", "platos", "cymbal", "cymbals", "room", "ambiente", "amb"]),

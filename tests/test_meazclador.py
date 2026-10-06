@@ -26,6 +26,11 @@ from meazclador.mezcla import Opciones, exportar, mezclar
         ("Voz principal.wav", "voz"),
         ("Piano.wav", "teclado"),
         ("Tom 2.wav", "toms"),
+        ("02-tambor#01-consolidated.wav", "caja"),
+        ("07-floor tom#01-consolidated.wav", "toms"),
+        ("10-hi hat#01-consolidated.wav", "hihat"),
+        ("06-coro-principal#01-consolidated.wav", "coros"),
+        ("13-over 1#01-consolidated.wav", "overheads"),
         ("pista_rara.wav", None),
     ],
 )
