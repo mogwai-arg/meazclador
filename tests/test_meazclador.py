@@ -925,3 +925,153 @@ def test_paso_convertir_a_mp3(tmp_path, monkeypatch):
         assert preferencias.cargar()["disco"] == "Ramoneando"
     finally:
         raiz.destroy()
+
+
+def _bateria_a_tempo(bpm=150, compases=40, apurar=None, corte=None, sr=44100):
+    """Bombo en 1 y 3, caja en 2 y 4, hi-hat en corcheas. apurar=(compás desde, hasta, factor);
+    corte=(compás, golpes) en los que la batería no toca."""
+    rng = np.random.default_rng(3)
+    t, tiempos = 0.5, []
+    for c in range(compases):
+        f = apurar[2] if apurar and apurar[0] <= c < apurar[1] else 1.0
+        for _ in range(4):
+            tiempos.append(t)
+            t += 60 / (bpm * f)
+    y = np.zeros(int((t + 1) * sr))
+
+    def poner(seg, x, ganancia):
+        i = int(seg * sr)
+        y[i:i + len(x)] += ganancia * x[:len(y) - i]
+
+    n = np.arange(int(0.15 * sr)) / sr
+    bombo = np.sin(2 * np.pi * 55 * n) * np.exp(-n / 0.05)
+    caja = rng.standard_normal(int(0.12 * sr)) * np.exp(-np.arange(int(0.12 * sr)) / sr / 0.03)
+    hat = rng.standard_normal(int(0.03 * sr)) * np.exp(-np.arange(int(0.03 * sr)) / sr / 0.006)
+    hat = np.diff(hat, prepend=0)
+    silencio = set()
+    if corte:
+        silencio = set(range(corte[0] * 4, corte[0] * 4 + corte[1]))
+    for i, g in enumerate(tiempos):
+        if i in silencio:
+            continue
+        poner(g, bombo if i % 2 == 0 else caja, 0.8 if i % 2 == 0 else 0.5)
+        siguiente = tiempos[i + 1] if i + 1 < len(tiempos) else g + 60 / bpm
+        poner(g, hat, 0.15)
+        poner((g + siguiente) / 2, hat, 0.12)
+    return y.astype(np.float32), tiempos
+
+
+def test_tempo_mide_desvios_y_cortes(tmp_path):
+    import soundfile as sf
+
+    from meazclador import tempo
+
+    y, _ = _bateria_a_tempo(bpm=150, compases=40, apurar=(20, 26, 1.06), corte=(30, 4))
+    sf.write(tmp_path / "tema.wav", y, 44100)
+    an = tempo.analizar(tmp_path / "tema.wav")
+    assert an.bpm == pytest.approx(150, abs=1.0) and not an.gradual
+    apurados = [d for d in an.desvios if d.mas_rapido]
+    assert len(apurados) == 1 and apurados[0].porcentaje == pytest.approx(6, abs=2)
+    inicio_apurado = 0.5 + 20 * 4 * 60 / 150
+    assert apurados[0].inicio == pytest.approx(inicio_apurado, abs=4)
+    assert len(an.cortes) == 1 and an.cortes[0][1] >= 3
+    # El click: 8 golpes de cuenta y después tempo fijo, también en el corte.
+    t = tempo.tiempos_click(an, 150)
+    assert np.allclose(np.diff(t), 0.4)
+    assert len(t) >= 8 + 40 * 4
+
+
+def test_tempo_no_se_lee_a_la_mitad(tmp_path):
+    import soundfile as sf
+
+    from meazclador import tempo
+
+    y, _ = _bateria_a_tempo(bpm=200, compases=30)
+    sf.write(tmp_path / "rapido.wav", y, 44100)
+    assert tempo.analizar(tmp_path / "rapido.wav").bpm == pytest.approx(200, abs=1.5)
+
+
+def test_tempo_a_la_mitad_da_el_mismo_informe(tmp_path):
+    import soundfile as sf
+
+    from meazclador import tempo
+
+    y, _ = _bateria_a_tempo(bpm=200, compases=40, apurar=(20, 26, 1.06))
+    sf.write(tmp_path / "rapido.wav", y, 44100)
+    entero, mitad = tempo.analizar(tmp_path / "rapido.wav"), tempo.analizar(tmp_path / "rapido.wav", bpm=100)
+    assert mitad.bpm == 100 and len(mitad.golpes) == pytest.approx(len(entero.golpes) / 2, abs=1)
+    assert [(d.inicio, d.porcentaje) for d in mitad.desvios] == [(d.inicio, d.porcentaje) for d in entero.desvios]
+    assert mitad.desvios[0].bpm == pytest.approx(entero.desvios[0].bpm / 2, abs=0.5)
+
+
+def test_click_con_arranque_gradual():
+    from meazclador.tempo import Analisis, tiempos_click
+
+    an = Analisis(archivo="x.wav", duracion=60, bpm=188, bpm_inicial=164, golpes_rampa=32,
+                  golpes=[i * 0.32 for i in range(160)])
+    bpm = 60 / np.diff(tiempos_click(an, 188))
+    assert np.allclose(bpm[:8], 164)  # la cuenta, al tempo con que arranca
+    assert bpm[8] > 164 and bpm[8 + 16] == pytest.approx(164 + 24 * 17 / 32, abs=0.5)
+    assert np.allclose(bpm[8 + 32:], 188)  # después queda fijo
+
+
+def test_comando_tempo_arma_clicks(tmp_path):
+    import json
+
+    import soundfile as sf
+    from mutagen.mp3 import MP3
+
+    from meazclador.cli import main as cli
+
+    for nombre, bpm in (("01_Uno", 150), ("02_Dos", 170)):
+        sf.write(tmp_path / f"{nombre}.wav", _bateria_a_tempo(bpm=bpm, compases=24)[0], 44100)
+    # A la mitad y con decimales (el '.5' no se confunde con la extensión).
+    assert cli(["tempo", str(tmp_path), "--bpm=02_Dos.wav=85.5", "--gradual", "01_Uno.wav"]) == 0
+    clicks = tmp_path / "clicks"
+    assert (clicks / "01_Uno_click_150bpm.mp3").is_file() and (clicks / "02_Dos_click_85.5bpm.mp3").is_file()
+    largo = MP3(clicks / "02_Dos_click_85.5bpm.mp3").info.length
+    # a la mitad, los 24 compases son 48 golpes: cuenta + tema + margen
+    assert largo == pytest.approx((8 + 24 * 2 + 8) * 60 / 85.5, abs=3)
+    datos = json.loads((clicks / "tempos.json").read_text(encoding="utf-8"))
+    dos = next(t for t in datos["temas"] if t["archivo"] == "02_Dos.wav")
+    assert dos["bpm_forzado"] == 85.5 and dos["bpm_click"] == 85.5
+    assert next(t for t in datos["temas"] if t["archivo"] == "01_Uno.wav")["gradual_pedido"] is True
+    informe = (clicks / "tempos.txt").read_text(encoding="utf-8")
+    assert "Uno" in informe and "85" in informe and "DÓNDE SE VA DE TEMPO" in informe
+
+
+def test_paso_tempo(tmp_path, monkeypatch):
+    import soundfile as sf
+
+    temas = tmp_path / "mp3"
+    temas.mkdir()
+    sf.write(temas / "01_Uno.wav", _bateria_a_tempo(bpm=160, compases=24, apurar=(10, 16, 1.06))[0], 44100)
+    raiz, app, avisos = _app_de_prueba(monkeypatch, tmp_path)
+    try:
+        app.ir_a(5)
+        p = app.pagina_tempo
+        p.carpeta.set(str(temas))
+        raiz.update()
+        p.actualizar_lista()
+        assert [a.name for a in p.archivos] == ["01_Uno.wav"]
+        assert "Sin medir" in p.tabla.set("01_Uno.wav", "estado")
+        assert not p.poner_bpm("01_Uno.wav", "rápido") and avisos[-1][0] == "aviso"
+        p.formato.set("WAV")
+        p.medir()
+        _esperar(raiz, app)
+        assert avisos[-1][0] == "exito" and "1 clicks" in avisos[-1][1]
+        assert (temas / "clicks" / "01_Uno_click_160bpm.wav").is_file()
+        assert p.tabla.set("01_Uno.wav", "bpm") == "160" and "↑" in p.tabla.set("01_Uno.wav", "desvios")
+        p.tabla.selection_set("01_Uno.wav")
+        raiz.update()
+        assert "se apura" in p.detalle.get()
+        # Cambiar el tempo y el arranque a mano y volver a armar: se respeta lo elegido.
+        assert p.poner_bpm("01_Uno.wav", "80")
+        p.alternar_arranque("01_Uno.wav")
+        assert p.tabla.set("01_Uno.wav", "arranque") == "Gradual"
+        p.medir()
+        _esperar(raiz, app)
+        assert (temas / "clicks" / "01_Uno_click_80bpm.wav").is_file()
+        assert app.botones_paso[4].hecho
+    finally:
+        raiz.destroy()

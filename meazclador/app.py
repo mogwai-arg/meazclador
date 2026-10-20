@@ -1,7 +1,7 @@
 """Punto de entrada del ejecutable (Meazclador.exe / Meazclador.app).
 
 Sin argumentos abre la ventana. Con argumentos se comporta como la línea de comandos.
-'--prueba' mezcla una banda sintética, la pasa a MP3 y sale con código 0 si todo funcionó
+'--prueba' mezcla una banda sintética, la pasa a MP3, mide el tempo y sale con código 0 si todo funcionó
 (lo usa la compilación automática para verificar el ejecutable).
 """
 
@@ -28,6 +28,9 @@ def autoprueba() -> int:
         codigo = cli(["convertir", str(pistas / "mezcla"), "--disco", "Prueba", "--artista", "Meazclador"])
         mp3 = pistas / "mezcla" / "mp3" / "master.mp3"
         ok = ok and codigo == 0 and mp3.is_file() and mp3.stat().st_size > 50_000
+        # Medir el tempo y armar el click.
+        codigo = cli(["tempo", str(mp3.parent)])
+        ok = ok and codigo == 0 and any((mp3.parent / "clicks").glob("*_click_*bpm.mp3"))
     from .reproductor import Reproductor
 
     # En Windows y Mac PortAudio viene dentro del paquete: si no carga, el empaquetado está mal.

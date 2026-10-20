@@ -215,7 +215,13 @@ def analizar(ruta: Path, bpm: float | None = None, gradual: bool = False) -> Ana
     bombo = _flujo(A, f, 35, 110)
     caja = _flujo(A, f, 1500, 6000)
     bombo, caja = bombo / (np.median(bombo) + 1e-9), caja / (np.median(caja) + 1e-9)
-    estimado = elegir_octava(env, bombo, caja, tempo_global(env)) if bpm is None else bpm
+    natural = elegir_octava(env, bombo, caja, tempo_global(env))
+    # Si se pidió la mitad o el doble del tempo natural, se sigue el pulso natural (más golpes,
+    # más confiable) y al final se pasa todo a la escala pedida: así el informe no cambia.
+    escala = 1.0
+    if bpm is not None:
+        escala = next((e for e in (0.5, 2.0) if abs(bpm / (natural * e) - 1) < 0.08), 1.0)
+    estimado = natural if bpm is None else bpm / escala
     golpes = seguir_golpes(env, estimado)
     tramos_corte = _cortes(golpes, bombo, caja)
     en_corte = np.zeros(len(golpes), bool)
@@ -244,7 +250,7 @@ def analizar(ruta: Path, bpm: float | None = None, gradual: bool = False) -> Ana
         resto[:rampa] = False
         medido = float(np.median(local[resto])) if resto.any() else tempo_tema
     if bpm is not None:
-        medido = bpm
+        medido = bpm / escala
     # lo que se aleja demasiado no es el baterista: el seguimiento se perdió (otro ritmo, un solo...)
     fuera_de_escala = np.abs(local / medido - 1) * 100 > MAXIMO_PCT
     fuera_de_escala[:rampa] = False
@@ -252,10 +258,18 @@ def analizar(ruta: Path, bpm: float | None = None, gradual: bool = False) -> Ana
     suave = _suavizar(local, valido)
 
     desvios = _desvios(centros, suave, valido, medido, rampa, golpes, tramos_corte)
-    return Analisis(archivo=Path(ruta).name, duracion=len(y) / SR, bpm=round(medido, 1),
-                    bpm_inicial=round(inicial, 1), golpes_rampa=rampa,
-                    cortes=[(round(float(golpes[i]), 2), n) for i, n in tramos_corte],
-                    desvios=desvios, golpes=[float(g) for g in golpes])
+    for d in desvios:
+        d.bpm = round(d.bpm * escala, 1)
+    if escala == 0.5:
+        golpes_escala = golpes[::2]
+    elif escala == 2.0:
+        golpes_escala = np.sort(np.concatenate([golpes, (golpes[:-1] + golpes[1:]) / 2]))
+    else:
+        golpes_escala = golpes
+    return Analisis(archivo=Path(ruta).name, duracion=len(y) / SR, bpm=round(medido * escala, 1),
+                    bpm_inicial=round(inicial * escala, 1), golpes_rampa=int(round(rampa * escala)),
+                    cortes=[(round(float(golpes[i]), 2), max(1, int(round(n * escala)))) for i, n in tramos_corte],
+                    desvios=desvios, golpes=[float(g) for g in golpes_escala])
 
 
 def _suavizar(local: np.ndarray, valido: np.ndarray, n: int = 5) -> np.ndarray:
@@ -367,7 +381,7 @@ def armar_click(an: Analisis, bpm: float | None = None, cuenta: int = 8, por_com
 def guardar_click(y: np.ndarray, destino: Path, formato: str = "mp3") -> Path:
     from pedalboard.io import AudioFile
 
-    destino = destino.with_suffix("." + formato)
+    destino = destino.with_name(destino.name + "." + formato)  # 'click_107.5bpm': el '.5' no es la extensión
     destino.parent.mkdir(parents=True, exist_ok=True)
     if formato == "wav":
         import soundfile as sf
@@ -461,7 +475,9 @@ def medir_y_armar(carpeta: Path, destino: Path | None = None, formato: str = "mp
         an = analizar(ruta, forzado, gradual)
         bpm = bpm_click(an, forzado)
         titulo, _ = titulo_y_orden(ruta.stem)
-        fila = {**an.a_dict(), "titulo": titulo, "bpm_click": bpm, "click": None}
+        fila = {**an.a_dict(), "titulo": titulo, "bpm_click": bpm, "bpm_forzado": forzado,
+                "gradual_pedido": gradual, "resumen": resumen_desvios(an), "detalle": describir_desvios(an),
+                "click": None}
         if clicks:
             salida = guardar_click(armar_click(an, bpm, cuenta), destino / f"{ruta.stem}_click_{bpm:g}bpm", formato)
             fila["click"] = salida.name

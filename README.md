@@ -39,7 +39,7 @@ Los ejecutables se arman y se prueban solos en GitHub cada vez que cambia el có
 
 ## Uso con la ventana
 
-La ventana es un recorrido en cuatro pasos (barra lateral, o Ctrl+1 a Ctrl+4 — ⌘ en Mac). Recuerda las
+La ventana es un recorrido en cinco pasos (barra lateral, o Ctrl+1 a Ctrl+5 — ⌘ en Mac). Recuerda las
 últimas carpetas elegidas, muestra los avisos dentro de la misma pantalla y cualquier trabajo largo
 se puede frenar con **Cancelar**. El detalle técnico de lo que va haciendo está en **Ver detalles**.
 
@@ -64,6 +64,21 @@ el **nombre del disco** y el **artista**, y elegí la calidad (320 kbps de entra
 de cada tema salen del nombre del archivo (`03_Help.wav` → tema 3, "Help"); con doble clic en la lista
 se cambian. Los MP3 quedan en una carpeta `mp3` al lado de los WAV, con título, número, disco y artista
 ya cargados, así se ven bien en el celular, la compu o el auto. Un tema de 3 minutos pasa de ~50 MB a ~7 MB.
+
+**5 · Tempo y click.** Elegí una carpeta con temas en MP3 o WAV (de entrada propone la carpeta `mp3`
+del paso 4) y tocá *Medir tempo y armar clicks*. Para cada tema muestra:
+- el **tempo** (BPM) y los **cortes** de batería;
+- **dónde se va de tempo** la banda: cada lugar donde se apura (↑) o se atrasa (↓) más de un 3 % durante
+  2 compases o más, con el minuto y a cuánto llega (elegí un tema de la lista para ver el detalle).
+
+Y arma en la carpeta `clicks` un **click por tema** (MP3 o WAV) con 8 golpes de cuenta (1-2-3-4, 1-2-3-4),
+el 1 de cada compás más agudo y el tempo fijo hasta el final, también a través de los cortes. Con doble
+clic se cambia el **BPM** (por ejemplo si se leyó al doble) o el **arranque**: *Gradual* hace que el click
+arranque al tempo con que empieza el tema y acelere de a poco hasta tomar el tempo, y de ahí quede fijo.
+Todo queda anotado en `clicks/tempos.txt`. El tempo se mide con el bombo y la caja (bombo en 1 y 3, caja
+en 2 y 4), así que un baterista que hace doble golpe no cambia el tempo medido. Ojo: si el baterista
+toca bombo-caja-bombo-caja en corcheas, se lee al doble; si el click se siente rapidísimo, poné la mitad
+(el informe de dónde se va de tempo da lo mismo con cualquiera de los dos).
 
 ## Estilos
 
@@ -104,6 +119,9 @@ meazclador retocar temas/03_Help --voz +2 --reverb 50 --presencia 0.8
 # pasar los masters a MP3 con los datos del disco
 meazclador convertir temas/masters --disco "Ramoneando" --artista "La Banda" \
     --titulo "03_Help.wav=Help!" --orden "03_Help.wav=1"
+
+# medir el tempo, ver dónde se va de tempo y armar clicks (con arreglos a mano)
+meazclador tempo temas/masters/mp3 --gradual 05_The_Night_Before.mp3 --bpm 07_From_Me_To_You.mp3=163
 
 # si la detección de guitarras se equivoca
 meazclador mezclar temas/03_Help --estilo punk --guitarras directas

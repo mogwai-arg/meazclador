@@ -1,4 +1,4 @@
-"""Ventana de meazclador: un recorrido en cuatro pasos (cortar, mezclar, retocar y pasar a MP3)."""
+"""Ventana de meazclador: un recorrido en cinco pasos (cortar, mezclar, retocar, pasar a MP3 y tempo)."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from .gui_convertir import PaginaConvertir
 from .gui_mezclar import PaginaMezclar
 from .gui_retoque import PanelRetoque
 from .gui_sesion import PanelSesion
+from .gui_tempo import PaginaTempo
 
 PASOS = [
     ("Cortar", "la grabación larga",
@@ -32,6 +33,9 @@ PASOS = [
     ("Pasar a MP3", "con los datos del disco",
      "Convertí los temas terminados a MP3, mucho más livianos, con el título, el número de tema, "
      "el disco y el artista ya puestos."),
+    ("Tempo y click", "para grabar de nuevo",
+     "Mide el tempo de cada tema, muestra dónde la banda se apura o se atrasa y arma un click "
+     "con dos compases de cuenta para la próxima grabación."),
 ]
 HOVER_LATERAL = "#25272C"
 
@@ -160,7 +164,9 @@ class App(ttk.Frame):
         self.pagina_mezclar = PaginaMezclar(self.contenedores[1].interior, self)
         self.panel_retoque = PanelRetoque(self.contenedores[2].interior, self)
         self.pagina_convertir = PaginaConvertir(self.contenedores[3].interior, self)
-        self.paginas = [self.panel_sesion, self.pagina_mezclar, self.panel_retoque, self.pagina_convertir]
+        self.pagina_tempo = PaginaTempo(self.contenedores[4].interior, self)
+        self.paginas = [self.panel_sesion, self.pagina_mezclar, self.panel_retoque, self.pagina_convertir,
+                        self.pagina_tempo]
         for p in self.paginas:
             p.pack(fill="both", expand=True)
 
@@ -238,6 +244,8 @@ class App(ttk.Frame):
             self.panel_retoque.carpeta.set(prefs["temas"])
         if prefs.get("masters"):
             self.pagina_convertir.carpeta.set(prefs["masters"])
+        if prefs.get("tempo"):
+            self.pagina_tempo.carpeta.set(prefs["tempo"])
 
     # ---------------------------------------------------------- navegación
 
