@@ -4,6 +4,7 @@
     meazclador mezclar CARPETA      mezcla y masteriza un tema (o todos los de una carpeta)
     meazclador retocar TEMA --voz +2 --presencia 0.8   retoca una mezcla hecha, en segundos
     meazclador convertir MASTERS --disco "..." --artista "..."   pasa los masters a MP3 con etiquetas
+    meazclador tempo TEMAS          mide el tempo de cada tema, dónde se va de tempo y arma clicks
 """
 
 from __future__ import annotations
@@ -180,6 +181,28 @@ def cmd_convertir(args) -> int:
     return 0
 
 
+def _pares(valores, opcion: str) -> dict[str, str]:
+    pares = {}
+    for valor in valores or []:
+        archivo, igual, dato = valor.rpartition("=")
+        if not igual:
+            raise ValueError(f"{opcion} va como ARCHIVO=VALOR (ej: '14_Hey_Jude.mp3=107.5')")
+        pares[archivo.strip()] = dato.strip()
+    return pares
+
+
+def cmd_tempo(args) -> int:
+    from .tempo import CARPETA_CLICKS, medir_y_armar
+
+    bpms = {a: float(v.replace(",", ".")) for a, v in _pares(args.bpm, "--bpm").items()}
+    arranques = {a.strip(): True for a in args.gradual or []}
+    destino = args.salida or args.carpeta / CARPETA_CLICKS
+    filas = medir_y_armar(args.carpeta, destino, args.formato, args.cuenta, bpms, arranques,
+                          clicks=not args.sin_click)
+    print(f"\nListo: {len(filas)} temas. Tempos y desvíos en {destino / 'tempos.txt'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:  # sin argumentos: abrir la ventana
@@ -187,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return gui()
     # Compatibilidad: 'meazclador CARPETA' sigue siendo mezclar.
-    if argv and argv[0] not in ("cortar", "mezclar", "retocar", "convertir", "-h", "--help"):
+    if argv and argv[0] not in ("cortar", "mezclar", "retocar", "convertir", "tempo", "-h", "--help"):
         argv.insert(0, "mezclar")
 
     mezcla = _opciones_mezcla()
@@ -238,7 +261,22 @@ def main(argv: list[str] | None = None) -> int:
     pv.add_argument("--orden", action="append", metavar="ARCHIVO=N", help="número de tema (si no, sale del nombre)")
     pv.set_defaults(func=cmd_convertir)
 
+    pt = sub.add_parser("tempo", help="medir el tempo de cada tema, ver dónde se va de tempo y armar clicks")
+    pt.add_argument("carpeta", type=Path, help="carpeta con los temas terminados (MP3 o WAV)")
+    pt.add_argument("-o", "--salida", type=Path, help="dónde dejar los clicks (por defecto: CARPETA/clicks)")
+    pt.add_argument("--formato", choices=("mp3", "wav"), default="mp3", help="formato de los clicks")
+    pt.add_argument("--cuenta", type=int, default=8, help="golpes de cuenta antes de arrancar (8 = dos compases)")
+    pt.add_argument("--bpm", action="append", metavar="ARCHIVO=BPM",
+                    help="tempo a mano para un tema (ej: si se leyó al doble: '14_Hey_Jude.mp3=107.5')")
+    pt.add_argument("--gradual", action="append", metavar="ARCHIVO",
+                    help="el tema arranca más lento y acelera hasta tomar el tempo; el click hace lo mismo")
+    pt.add_argument("--sin-click", action="store_true", help="sólo medir, sin armar los clicks")
+    pt.set_defaults(func=cmd_tempo)
+
     args = ap.parse_args(argv)
+    if args.comando == "tempo" and not args.carpeta.is_dir():
+        print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)
+        return 1
     if args.comando == "convertir" and not args.carpeta.is_dir():
         print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)
         return 1
