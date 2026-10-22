@@ -1,4 +1,5 @@
-"""Pasar los masters (WAV) a MP3 con las etiquetas del disco: título, número de tema, disco y artista."""
+"""Pasar los masters (WAV) a MP3 con las etiquetas del disco (título, número de tema, disco y artista),
+o cargarle esas etiquetas a MP3 que ya existen."""
 
 from __future__ import annotations
 
@@ -19,7 +20,7 @@ _NUMERO = re.compile(r"^\s*(\d{1,3})\s*[-_.)\s]+\s*(.*)$")
 
 @dataclass
 class Tema:
-    wav: Path
+    archivo: Path  # WAV para convertir o MP3 para etiquetar
     orden: int
     titulo: str
 
@@ -35,6 +36,39 @@ def wavs_en(carpeta: Path) -> list[Path]:
     return wavs
 
 
+def mp3s_en(carpeta: Path) -> list[Path]:
+    if not carpeta.is_dir():
+        return []
+    return sorted(p for p in carpeta.iterdir() if p.is_file() and p.suffix.lower() == ".mp3"
+                  and not p.name.startswith(".") and not p.name.endswith(".parcial.mp3"))
+
+
+def archivos_en(carpeta: Path) -> tuple[list[Path], str]:
+    """(archivos, 'wav' o 'mp3'): con WAV se convierte; si sólo hay MP3, se les cargan los datos."""
+    wavs = wavs_en(carpeta)
+    if wavs:
+        return wavs, "wav"
+    mp3s = mp3s_en(carpeta)
+    return (mp3s, "mp3") if mp3s else ([], "wav")
+
+
+def leer_etiquetas(mp3: Path) -> dict:
+    """Lo que ya tiene cargado un MP3: titulo, orden, disco y artista (vacío si no tiene)."""
+    from mutagen.id3 import ID3, ID3NoHeaderError
+
+    try:
+        t = ID3(mp3)
+    except (ID3NoHeaderError, OSError):
+        return {"titulo": "", "orden": None, "disco": "", "artista": ""}
+
+    def texto(clave: str) -> str:
+        return str(t[clave].text[0]).strip() if clave in t and t[clave].text else ""
+
+    numero = re.match(r"\s*(\d+)", texto("TRCK"))
+    return {"titulo": texto("TIT2"), "orden": int(numero.group(1)) if numero else None,
+            "disco": texto("TALB"), "artista": texto("TPE1") or texto("TPE2")}
+
+
 def titulo_y_orden(nombre: str) -> tuple[str, int | None]:
     """'03_Help' -> ('Help', 3); 'Twist and shout' -> ('Twist and shout', None)."""
     m = _NUMERO.match(nombre)
@@ -43,19 +77,45 @@ def titulo_y_orden(nombre: str) -> tuple[str, int | None]:
     return titulo or nombre, numero
 
 
-def temas_de(wavs: list[Path]) -> list[Tema]:
-    """Título y número de orden sacados del nombre de cada archivo (o de su lugar en la lista)."""
+def temas_de(archivos: list[Path]) -> list[Tema]:
+    """Título y número de cada tema: los que ya tiene cargados el MP3, o si no, los del nombre del
+    archivo (o su lugar en la lista)."""
     temas = []
-    for i, wav in enumerate(wavs, 1):
-        titulo, numero = titulo_y_orden(wav.stem)
-        temas.append(Tema(wav, numero or i, titulo))
+    for i, archivo in enumerate(archivos, 1):
+        titulo, numero = titulo_y_orden(archivo.stem)
+        if archivo.suffix.lower() == ".mp3":
+            cargado = leer_etiquetas(archivo)
+            titulo, numero = cargado["titulo"] or titulo, cargado["orden"] or numero
+        temas.append(Tema(archivo, numero or i, titulo))
     return temas
 
 
-def etiquetar(mp3: Path, titulo: str, orden: int, total: int, disco: str = "", artista: str = "") -> None:
-    from mutagen.id3 import ID3, TALB, TIT2, TPE1, TPE2, TRCK
+def datos_comunes(mp3s: list[Path]) -> dict:
+    """Disco y artista que comparten todos los MP3 (vacío si no tienen o si difieren)."""
+    datos = [leer_etiquetas(m) for m in mp3s]
+    comunes = {}
+    for clave in ("disco", "artista"):
+        valores = {d[clave] for d in datos}
+        comunes[clave] = valores.pop() if len(valores) == 1 else ""
+    return comunes
 
-    etiquetas = ID3()
+
+def etiquetar(mp3: Path, titulo: str, orden: int, total: int, disco: str = "", artista: str = "") -> None:
+    """Carga título, número, disco y artista. Lo demás que tenga el MP3 (la tapa, el año...) se respeta;
+    un disco o artista vacío deja el que ya tenía."""
+    from mutagen.id3 import ID3, TALB, TIT2, TPE1, TPE2, TRCK, ID3NoHeaderError
+
+    try:
+        etiquetas = ID3(mp3)
+    except ID3NoHeaderError:
+        etiquetas = ID3()
+    for clave in ("TIT2", "TRCK"):
+        etiquetas.delall(clave)
+    if disco:
+        etiquetas.delall("TALB")
+    if artista:
+        etiquetas.delall("TPE1")
+        etiquetas.delall("TPE2")
     etiquetas.add(TIT2(encoding=3, text=titulo))
     etiquetas.add(TRCK(encoding=3, text=f"{orden}/{total}"))
     if disco:
@@ -98,11 +158,26 @@ def convertir(temas: list[Tema], destino: Path, kbps: int = 320, disco: str = ""
     total = max(t.orden for t in temas)
     hechos = []
     for i, tema in enumerate(temas, 1):
-        avisar(f"=== {tema.wav.name} ({i}/{len(temas)}) ===")
-        mp3 = destino / (tema.wav.stem + ".mp3")
-        a_mp3(tema.wav, mp3, kbps, cancelar)
+        avisar(f"=== {tema.archivo.name} ({i}/{len(temas)}) ===")
+        mp3 = destino / (tema.archivo.stem + ".mp3")
+        a_mp3(tema.archivo, mp3, kbps, cancelar)
         etiquetar(mp3, tema.titulo, tema.orden, max(total, len(temas)), disco, artista)
         mb = mp3.stat().st_size / 1e6
         avisar(f"✔ {mp3}  ({mb:.1f} MB)")
         hechos.append(mp3)
     return hechos
+
+
+def etiquetar_mp3s(temas: list[Tema], disco: str = "", artista: str = "", avisar=print,
+                   cancelar=lambda: False) -> list[Path]:
+    """Carga los datos del disco a MP3 que ya existen (no toca el audio)."""
+    if not temas:
+        raise ValueError("No hay archivos MP3")
+    total = max(max(t.orden for t in temas), len(temas))
+    for i, tema in enumerate(temas, 1):
+        if cancelar():
+            raise Cancelado()
+        avisar(f"=== {tema.archivo.name} ({i}/{len(temas)}) ===")
+        etiquetar(tema.archivo, tema.titulo, tema.orden, total, disco, artista)
+        avisar(f"✔ {tema.archivo.name}: {tema.orden}. {tema.titulo}")
+    return [t.archivo for t in temas]

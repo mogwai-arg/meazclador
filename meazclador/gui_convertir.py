@@ -1,4 +1,5 @@
-"""Paso 4 de la ventana: pasar los masters a MP3 con los datos del disco (título, número, disco y artista)."""
+"""Paso 4 de la ventana: pasar los masters a MP3 con los datos del disco (título, número, disco y artista),
+o cargarle esos datos a MP3 que ya existen."""
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ from pathlib import Path
 from tkinter import ttk
 
 from . import preferencias
-from .convertir import CALIDADES, CARPETA_MP3, temas_de, wavs_en
+from .convertir import CALIDADES, CARPETA_MP3, archivos_en, datos_comunes, leer_etiquetas, temas_de, wavs_en
 from .estilo_ui import ACENTO, ERROR, EXITO, S1, S2, S3, S4, S6, TEXTO_2, TEXTO_3, CampoRuta, Tarjeta
 
 CALIDADES_GUI = {
@@ -22,6 +23,9 @@ ESTADOS = {
     "convirtiendo": ("◐", "Convirtiendo…"),
     "listo": ("✓", "Listo"),
     "hecho": ("✓", "Ya convertido"),
+    "sin_datos": ("○", "Sin datos"),
+    "con_datos": ("✓", "Con datos"),
+    "guardando": ("◐", "Guardando…"),
     "cancelado": ("–", "Cancelado"),
     "error": ("!", "Error"),
 }
@@ -31,7 +35,8 @@ class PaginaConvertir(ttk.Frame):
     def __init__(self, padre, app):
         super().__init__(padre)
         self.app = app
-        self.wavs: list[Path] = []
+        self.archivos: list[Path] = []  # WAV para convertir, o MP3 para cargarles los datos
+        self.modo = "wav"
         self.etiquetas: dict[str, tuple[int, str]] = {}  # archivo -> (número, título)
         self._actual: str | None = None
         self._editor: ttk.Entry | None = None
@@ -44,9 +49,9 @@ class PaginaConvertir(ttk.Frame):
         origen.grid(row=0, column=0, sticky="ew")
         origen.columnconfigure(0, weight=1)
         self.carpeta = tk.StringVar()
-        CampoRuta(origen, "Carpeta con los WAV finales", self.carpeta,
-                  ayuda="La carpeta 'masters' que crea el paso 2 (dentro de 'temas'). Los MP3 se guardan en "
-                        "una carpeta 'mp3' al lado de los WAV.").grid(row=0, column=0, sticky="ew")
+        CampoRuta(origen, "Carpeta con los WAV finales o con MP3", self.carpeta,
+                  ayuda="Con WAV (la carpeta 'masters' del paso 2): los pasa a MP3 en una carpeta 'mp3' al lado. "
+                        "Con MP3: sólo les carga los datos del disco.").grid(row=0, column=0, sticky="ew")
         self.carpeta.trace_add("write", lambda *_: self.after(80, self.actualizar_lista))
 
         # --- datos del disco
@@ -67,7 +72,10 @@ class PaginaConvertir(ttk.Frame):
             marco.columnconfigure(0, weight=1)
             ttk.Label(marco, text=etiqueta, style="Tarjeta.Secundario.TLabel").grid(row=0, column=0, sticky="w",
                                                                                   pady=(0, S1))
-            widget(marco).grid(row=1, column=0, sticky="ew")
+            w = widget(marco)
+            w.grid(row=1, column=0, sticky="ew")
+            if etiqueta == "Calidad":
+                self.combo_calidad = w
         ttk.Label(datos, style="Tarjeta.Pista.TLabel",
                   text="Cada MP3 se guarda con su título, número de tema, disco y artista: así se ve bien "
                        "en el celular, en la compu o en el auto.").grid(row=1, column=0, columnspan=3,
@@ -90,8 +98,9 @@ class PaginaConvertir(ttk.Frame):
                                                   ("archivo", "ARCHIVO", 220, True, "w")):
             self.tabla.heading(col, text=titulo, anchor=alin)
             self.tabla.column(col, width=ancho, stretch=estirar, anchor=alin)
-        for etiqueta, color in (("listo", EXITO), ("hecho", EXITO), ("convirtiendo", ACENTO), ("error", ERROR),
-                                ("espera", TEXTO_2), ("cancelado", TEXTO_3)):
+        for etiqueta, color in (("listo", EXITO), ("hecho", EXITO), ("con_datos", EXITO), ("convirtiendo", ACENTO),
+                                ("guardando", ACENTO), ("error", ERROR), ("espera", TEXTO_2), ("sin_datos", TEXTO_2),
+                                ("cancelado", TEXTO_3)):
             self.tabla.tag_configure(etiqueta, foreground=color)
         self.tabla.grid(row=1, column=0, sticky="nsew")
         barra = ttk.Scrollbar(lista, orient="vertical", command=self.tabla.yview)
@@ -100,8 +109,8 @@ class PaginaConvertir(ttk.Frame):
         self.tabla.bind("<Double-1>", self._editar_celda)
         self.tabla.bind("<Return>", lambda _: self.editar(self._elegido(), "titulo"))
         self.vacio = ttk.Label(lista, style="Tarjeta.Secundario.TLabel", justify="center", anchor="center",
-                               text="Todavía no hay WAV para convertir.\nElegí arriba la carpeta 'masters' "
-                                    "(la crea el paso 2 dentro de 'temas').")
+                               text="Todavía no hay temas.\nElegí arriba la carpeta 'masters' del paso 2 "
+                                    "(WAV) o una carpeta con MP3.")
 
         # --- acciones
         acciones = ttk.Frame(self)
@@ -118,7 +127,10 @@ class PaginaConvertir(ttk.Frame):
 
     @property
     def destino(self) -> Path | None:
-        return self.wavs[0].parent / CARPETA_MP3 if self.wavs else None
+        """Dónde quedan los MP3: al lado de los WAV, o la misma carpeta si ya eran MP3."""
+        if not self.archivos:
+            return None
+        return self.archivos[0].parent if self.modo == "mp3" else self.archivos[0].parent / CARPETA_MP3
 
     def al_mostrar(self) -> None:
         if not self.carpeta.get().strip():  # de entrada: los masters del paso 2
@@ -131,26 +143,37 @@ class PaginaConvertir(ttk.Frame):
         return [self.btn_convertir]
 
     def actualizar_botones(self) -> None:
-        if not self.wavs:
+        if not self.archivos:
             self.btn_convertir.configure(state="disabled")
 
     def actualizar_lista(self) -> None:
         if self.app.trabajando:
             return
         texto = self.carpeta.get().strip()
-        wavs = wavs_en(Path(texto)) if texto else []
-        if [w.name for w in wavs] != [w.name for w in self.wavs]:  # otra carpeta: títulos sacados de los nombres
-            self.etiquetas = {t.wav.name: (t.orden, t.titulo) for t in temas_de(wavs)}
-        self.wavs = wavs
+        archivos, modo = archivos_en(Path(texto)) if texto else ([], "wav")
+        if [a.name for a in archivos] != [a.name for a in self.archivos] or modo != self.modo:
+            # otra carpeta: títulos y números de los datos que ya tienen los MP3, o de los nombres
+            self.etiquetas = {t.archivo.name: (t.orden, t.titulo) for t in temas_de(archivos)}
+            if modo == "mp3":
+                comunes = datos_comunes(archivos)
+                for var, clave in ((self.disco, "disco"), (self.artista, "artista")):
+                    if comunes[clave]:
+                        var.set(comunes[clave])
+        self.archivos, self.modo = archivos, modo
         self.tabla.delete(*self.tabla.get_children())
-        for wav in wavs:
-            self._fila(wav, "hecho" if (wav.parent / CARPETA_MP3 / (wav.stem + ".mp3")).is_file() else "espera")
-        hay = bool(wavs)
+        for a in archivos:
+            self._fila(a, self._estado_inicial(a))
+        hay, n = bool(archivos), len(archivos)
+        self.combo_calidad.configure(state="disabled" if modo == "mp3" else "readonly")
         if hay:
             self.vacio.place_forget()
-            self.resumen.set("1 tema" if len(wavs) == 1 else f"{len(wavs)} temas")
-            self.btn_convertir.configure(text="♪  Convertir 1 tema a MP3" if len(wavs) == 1
-                                         else f"♪  Convertir {len(wavs)} temas a MP3")
+            self.resumen.set(("1 tema" if n == 1 else f"{n} temas") + (" en MP3" if modo == "mp3" else ""))
+            if modo == "mp3":
+                self.btn_convertir.configure(text="♪  Guardar los datos en el MP3" if n == 1
+                                             else f"♪  Guardar los datos en los {n} MP3")
+            else:
+                self.btn_convertir.configure(text="♪  Convertir 1 tema a MP3" if n == 1
+                                             else f"♪  Convertir {n} temas a MP3")
             preferencias.guardar(masters=texto)
         else:
             self.resumen.set("Temas")
@@ -159,19 +182,24 @@ class PaginaConvertir(ttk.Frame):
         self.btn_convertir.configure(state="normal" if hay else "disabled")
         self.btn_abrir.configure(state="normal" if self.destino and self.destino.is_dir() else "disabled")
 
-    def _fila(self, wav: Path, estado: str) -> None:
+    def _estado_inicial(self, archivo: Path) -> str:
+        if self.modo == "mp3":
+            return "con_datos" if leer_etiquetas(archivo)["titulo"] else "sin_datos"
+        return "hecho" if (archivo.parent / CARPETA_MP3 / (archivo.stem + ".mp3")).is_file() else "espera"
+
+    def _fila(self, archivo: Path, estado: str) -> None:
         icono, texto = ESTADOS[estado]
-        orden, titulo = self.etiquetas.get(wav.name, (0, wav.stem))
-        valores = (f"{icono}  {texto}", orden, titulo, wav.name)
-        if self.tabla.exists(wav.name):
-            self.tabla.item(wav.name, values=valores, tags=(estado,))
+        orden, titulo = self.etiquetas.get(archivo.name, (0, archivo.stem))
+        valores = (f"{icono}  {texto}", orden, titulo, archivo.name)
+        if self.tabla.exists(archivo.name):
+            self.tabla.item(archivo.name, values=valores, tags=(estado,))
         else:
-            self.tabla.insert("", "end", iid=wav.name, values=valores, tags=(estado,))
+            self.tabla.insert("", "end", iid=archivo.name, values=valores, tags=(estado,))
 
     def _poner(self, nombre: str, estado: str) -> None:
-        wav = next((w for w in self.wavs if w.name == nombre), None)
-        if wav is not None:
-            self._fila(wav, estado)
+        archivo = next((a for a in self.archivos if a.name == nombre), None)
+        if archivo is not None:
+            self._fila(archivo, estado)
             self.tabla.see(nombre)
 
     # ---------------------------------------------------------- editar número y título
@@ -198,7 +226,7 @@ class PaginaConvertir(ttk.Frame):
             titulo = valor
         self.etiquetas[archivo] = (orden, titulo)
         estado = self.tabla.item(archivo, "tags")[0] if self.tabla.exists(archivo) else "espera"
-        self._fila(next(w for w in self.wavs if w.name == archivo), estado)
+        self._fila(next(a for a in self.archivos if a.name == archivo), estado)
         return True
 
     def editar(self, archivo: str | None, columna: str) -> None:
@@ -241,15 +269,16 @@ class PaginaConvertir(ttk.Frame):
             abrir_carpeta(self.destino)
 
     def _leer_linea(self, linea: str) -> None:
-        total = max(1, len(self.wavs))
+        total = max(1, len(self.archivos))
         m = re.match(r"^=== (.+) \((\d+)/(\d+)\) ===$", linea)
         if m:
             if self._actual:
                 self._poner(self._actual, "listo")
             self._actual, i = m.group(1), int(m.group(2))
-            self._poner(self._actual, "convirtiendo")
+            self._poner(self._actual, "guardando" if self.modo == "mp3" else "convirtiendo")
             titulo = self.etiquetas.get(self._actual, (0, self._actual))[1]
-            self.app.poner_estado(f"Convirtiendo {titulo}", f"Tema {i} de {total}", (i - 1) / total)
+            accion = "Guardando los datos de" if self.modo == "mp3" else "Convirtiendo"
+            self.app.poner_estado(f"{accion} {titulo}", f"Tema {i} de {total}", (i - 1) / total)
 
     def _al_terminar(self, codigo: int) -> None:
         if self._actual:
@@ -263,31 +292,39 @@ class PaginaConvertir(ttk.Frame):
         if not carpeta:
             return
         self.actualizar_lista()
-        if not self.wavs:
-            self.app.notificar("En esa carpeta no hay archivos WAV: elegí la carpeta 'masters' que crea el paso 2.",
-                               "aviso")
+        if not self.archivos:
+            self.app.notificar("En esa carpeta no hay WAV ni MP3: elegí la carpeta 'masters' del paso 2 o una "
+                               "carpeta con MP3.", "aviso")
             return
         disco, artista = self.disco.get().strip(), self.artista.get().strip()
         preferencias.guardar(disco=disco, artista=artista)
+        mp3 = self.modo == "mp3"
         # '--opcion=valor': así un valor que empieza con '-' no se confunde con otra opción
-        args = ["convertir", str(carpeta), f"--kbps={CALIDADES_GUI.get(self.calidad.get(), CALIDADES[0])}",
-                f"--disco={disco}", f"--artista={artista}"]
-        for wav in self.wavs:
-            orden, titulo = self.etiquetas[wav.name]
-            args += [f"--orden={wav.name}={orden}", f"--titulo={wav.name}={titulo}"]
-        for wav in self.wavs:
-            self._fila(wav, "espera")
+        if mp3:
+            args = ["etiquetar", str(self.archivos[0].parent)]
+        else:
+            args = ["convertir", str(carpeta), f"--kbps={CALIDADES_GUI.get(self.calidad.get(), CALIDADES[0])}"]
+        args += [f"--disco={disco}", f"--artista={artista}"]
+        for a in self.archivos:
+            orden, titulo = self.etiquetas[a.name]
+            args += [f"--orden={a.name}={orden}", f"--titulo={a.name}={titulo}"]
+        for a in self.archivos:
+            self._fila(a, "espera")
         self._actual = None
-        destino = self.destino
+        destino, n = self.destino, len(self.archivos)
 
         def listo():
-            for wav in self.wavs:
-                self._fila(wav, "listo")
+            for a in self.archivos:
+                self._fila(a, "listo")
             self.btn_abrir.configure(state="normal")
             self.app.marcar_hecho(4)
-            cuantos = "El MP3 quedó listo" if len(self.wavs) == 1 else f"Los {len(self.wavs)} MP3 quedaron listos"
-            self.app.notificar(f"{cuantos}, con sus datos de disco. Están en {destino}.", "exito",
-                               ("Abrir carpeta", self._abrir_mp3))
+            if mp3:
+                texto = (f"Listo: datos cargados en {'el MP3' if n == 1 else f'los {n} MP3'} "
+                         f"(título, número, disco y artista).")
+            else:
+                cuantos = "El MP3 quedó listo" if n == 1 else f"Los {n} MP3 quedaron listos"
+                texto = f"{cuantos}, con sus datos de disco. Están en {destino}."
+            self.app.notificar(texto, "exito", ("Abrir carpeta", self._abrir_mp3))
 
         self.app.escuchar_trabajo(self._leer_linea, self._al_terminar)
-        self.app._correr(args, listo, estado="Preparando la conversión…")
+        self.app._correr(args, listo, estado="Guardando los datos…" if mp3 else "Preparando la conversión…")

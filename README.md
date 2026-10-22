@@ -65,6 +65,10 @@ de cada tema salen del nombre del archivo (`03_Help.wav` → tema 3, "Help"); co
 se cambian. Los MP3 quedan en una carpeta `mp3` al lado de los WAV, con título, número, disco y artista
 ya cargados, así se ven bien en el celular, la compu o el auto. Un tema de 3 minutos pasa de ~50 MB a ~7 MB.
 
+¿Ya tenés los temas en MP3? Elegí esa carpeta en el mismo paso: muestra los datos que ya tienen (título,
+número, disco y artista), los corregís y *Guardar los datos* los carga en los mismos MP3, sin volver a
+codificar el audio y sin borrar lo demás que tengan (por ejemplo la tapa).
+
 **5 · Tempo y click.** Elegí una carpeta con temas en MP3 o WAV (de entrada propone la carpeta `mp3`
 del paso 4) y tocá *Medir tempo y armar clicks*. Para cada tema muestra:
 - el **tempo** (BPM) y los **cortes** de batería;
@@ -119,6 +123,9 @@ meazclador retocar temas/03_Help --voz +2 --reverb 50 --presencia 0.8
 # pasar los masters a MP3 con los datos del disco
 meazclador convertir temas/masters --disco "Ramoneando" --artista "La Banda" \
     --titulo "03_Help.wav=Help!" --orden "03_Help.wav=1"
+
+# cargar o corregir los datos de MP3 que ya existen
+meazclador etiquetar mis_mp3/ --disco "A Hard Days Punk Night" --artista "La Banda" --titulo "07_Misery.mp3=Misery"
 
 # medir el tempo, ver dónde se va de tempo y armar clicks (con arreglos a mano)
 meazclador tempo temas/masters/mp3 --gradual 05_The_Night_Before.mp3 --bpm 07_From_Me_To_You.mp3=163

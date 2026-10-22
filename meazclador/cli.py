@@ -4,6 +4,7 @@
     meazclador mezclar CARPETA      mezcla y masteriza un tema (o todos los de una carpeta)
     meazclador retocar TEMA --voz +2 --presencia 0.8   retoca una mezcla hecha, en segundos
     meazclador convertir MASTERS --disco "..." --artista "..."   pasa los masters a MP3 con etiquetas
+    meazclador etiquetar CARPETA_MP3 --disco "..." --artista "..."  carga esos datos a MP3 que ya existen
     meazclador tempo TEMAS          mide el tempo de cada tema, dónde se va de tempo y arma clicks
 """
 
@@ -154,6 +155,22 @@ def cmd_cortar(args) -> int:
     return 0
 
 
+def _con_cambios(temas, args) -> None:
+    """Aplica --titulo y --orden (ARCHIVO=VALOR) a los temas."""
+    cambios = {}
+    for opcion, valor in [("--titulo", v) for v in args.titulo or []] + [("--orden", v) for v in args.orden or []]:
+        archivo, igual, dato = valor.partition("=")
+        if not igual:
+            raise ValueError(f"{opcion} va como ARCHIVO=VALOR (ej: '03_Help.wav=Help!')")
+        cambios.setdefault(archivo.strip(), {})[opcion] = dato.strip()
+    for tema in temas:
+        for clave in (tema.archivo.name, tema.archivo.stem):
+            if "--titulo" in cambios.get(clave, {}):
+                tema.titulo = cambios[clave]["--titulo"] or tema.titulo
+            if "--orden" in cambios.get(clave, {}):
+                tema.orden = int(cambios[clave]["--orden"])
+
+
 def cmd_convertir(args) -> int:
     from .convertir import CARPETA_MP3, convertir, temas_de, wavs_en
 
@@ -162,22 +179,26 @@ def cmd_convertir(args) -> int:
         print(f"Error: no hay archivos WAV en {args.carpeta}", file=sys.stderr)
         return 1
     temas = temas_de(wavs)
-    cambios = {}
-    for opcion, valor in [("--titulo", v) for v in args.titulo or []] + [("--orden", v) for v in args.orden or []]:
-        archivo, igual, dato = valor.partition("=")
-        if not igual:
-            raise ValueError(f"{opcion} va como ARCHIVO=VALOR (ej: '03_Help.wav=Help!')")
-        cambios.setdefault(archivo.strip(), {})[opcion] = dato.strip()
-    for tema in temas:
-        for clave in (tema.wav.name, tema.wav.stem):
-            if "--titulo" in cambios.get(clave, {}):
-                tema.titulo = cambios[clave]["--titulo"] or tema.titulo
-            if "--orden" in cambios.get(clave, {}):
-                tema.orden = int(cambios[clave]["--orden"])
+    _con_cambios(temas, args)
     destino = args.salida or wavs[0].parent / CARPETA_MP3
     print(f"Convirtiendo {len(temas)} temas a MP3 ({args.kbps} kbps) en {destino}")
     convertir(temas, destino, args.kbps, args.disco, args.artista)
     print(f"\nListo: {len(temas)} MP3 en {destino}")
+    return 0
+
+
+def cmd_etiquetar(args) -> int:
+    from .convertir import etiquetar_mp3s, mp3s_en, temas_de
+
+    mp3s = mp3s_en(args.carpeta)
+    if not mp3s:
+        print(f"Error: no hay archivos MP3 en {args.carpeta}", file=sys.stderr)
+        return 1
+    temas = temas_de(mp3s)
+    _con_cambios(temas, args)
+    print(f"Cargando los datos del disco en {len(temas)} MP3 de {args.carpeta}")
+    etiquetar_mp3s(temas, args.disco, args.artista)
+    print(f"\nListo: datos cargados en {len(temas)} MP3")
     return 0
 
 
@@ -210,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
 
         return gui()
     # Compatibilidad: 'meazclador CARPETA' sigue siendo mezclar.
-    if argv and argv[0] not in ("cortar", "mezclar", "retocar", "convertir", "tempo", "-h", "--help"):
+    if argv and argv[0] not in ("cortar", "mezclar", "retocar", "convertir", "etiquetar", "tempo", "-h", "--help"):
         argv.insert(0, "mezclar")
 
     mezcla = _opciones_mezcla()
@@ -261,6 +282,15 @@ def main(argv: list[str] | None = None) -> int:
     pv.add_argument("--orden", action="append", metavar="ARCHIVO=N", help="número de tema (si no, sale del nombre)")
     pv.set_defaults(func=cmd_convertir)
 
+    pe = sub.add_parser("etiquetar", help="cargar título, número, disco y artista a MP3 que ya existen")
+    pe.add_argument("carpeta", type=Path, help="carpeta con los MP3")
+    pe.add_argument("--disco", default="", help="nombre del disco (vacío: deja el que tenga)")
+    pe.add_argument("--artista", default="", help="nombre de la banda (vacío: deja el que tenga)")
+    pe.add_argument("--titulo", action="append", metavar="ARCHIVO=TÍTULO",
+                    help="título de un tema (si no, el que ya tiene o el del nombre del archivo)")
+    pe.add_argument("--orden", action="append", metavar="ARCHIVO=N", help="número de tema")
+    pe.set_defaults(func=cmd_etiquetar)
+
     pt = sub.add_parser("tempo", help="medir el tempo de cada tema, ver dónde se va de tempo y armar clicks")
     pt.add_argument("carpeta", type=Path, help="carpeta con los temas terminados (MP3 o WAV)")
     pt.add_argument("-o", "--salida", type=Path, help="dónde dejar los clicks (por defecto: CARPETA/clicks)")
@@ -277,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.comando == "tempo" and not args.carpeta.is_dir():
         print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)
         return 1
-    if args.comando == "convertir" and not args.carpeta.is_dir():
+    if args.comando in ("convertir", "etiquetar") and not args.carpeta.is_dir():
         print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)
         return 1
     if args.comando == "mezclar" and not args.carpeta.is_dir():

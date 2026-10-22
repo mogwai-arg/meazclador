@@ -895,6 +895,76 @@ def test_convertir_a_mp3_con_etiquetas(tmp_path):
     assert not list(destino.glob("*.parcial.mp3"))
 
 
+def _mp3s_de_prueba(carpeta: Path, nombres, con_tapa=False):
+    from meazclador.cli import main as cli
+
+    _masters_de_prueba(carpeta / "wav", nombres, segundos=2)
+    assert cli(["convertir", str(carpeta / "wav"), "-o", str(carpeta / "mp3"), "--disco", "Viejo",
+                "--artista", "Otra Banda"]) == 0
+    if con_tapa:
+        from mutagen.id3 import APIC, ID3
+
+        for m in (carpeta / "mp3").glob("*.mp3"):
+            t = ID3(m)
+            t.add(APIC(encoding=3, mime="image/png", type=3, desc="tapa", data=b"\x89PNG fake"))
+            t.save(m)
+    return carpeta / "mp3"
+
+
+def test_etiquetar_mp3_que_ya_existen(tmp_path):
+    from mutagen.mp3 import MP3
+
+    from meazclador.cli import main as cli
+    from meazclador.convertir import archivos_en, datos_comunes, leer_etiquetas, temas_de
+
+    mp3s = _mp3s_de_prueba(tmp_path, ["01_Help", "07_Misery"], con_tapa=True)
+    archivos, modo = archivos_en(mp3s)
+    assert modo == "mp3" and [a.name for a in archivos] == ["01_Help.mp3", "07_Misery.mp3"]
+    assert datos_comunes(archivos) == {"disco": "Viejo", "artista": "Otra Banda"}
+    assert [(t.orden, t.titulo) for t in temas_de(archivos)] == [(1, "Help"), (7, "Misery")]  # lo que ya tenían
+    antes = (mp3s / "01_Help.mp3").stat().st_size
+    assert cli(["etiquetar", str(mp3s), "--disco", "A Hard Days Punk Night", "--artista", "La Banda",
+                "--titulo=07_Misery.mp3=Misery!", "--orden=07_Misery.mp3=2"]) == 0
+    help_, misery = leer_etiquetas(mp3s / "01_Help.mp3"), leer_etiquetas(mp3s / "07_Misery.mp3")
+    assert help_ == {"titulo": "Help", "orden": 1, "disco": "A Hard Days Punk Night", "artista": "La Banda"}
+    assert misery["titulo"] == "Misery!" and misery["orden"] == 2
+    etiquetas = MP3(mp3s / "07_Misery.mp3").tags
+    assert str(etiquetas["TRCK"]) == "2/2" and etiquetas.getall("APIC")  # la tapa sigue ahí
+    assert abs((mp3s / "01_Help.mp3").stat().st_size - antes) < 2000  # no se volvió a codificar
+    # Disco vacío: se deja el que ya tenía.
+    assert cli(["etiquetar", str(mp3s), "--artista", "Los Otros"]) == 0
+    assert leer_etiquetas(mp3s / "01_Help.mp3")["disco"] == "A Hard Days Punk Night"
+
+
+def test_paso_convertir_con_mp3(tmp_path, monkeypatch):
+    from meazclador.convertir import leer_etiquetas
+
+    mp3s = _mp3s_de_prueba(tmp_path, ["01_Help", "02_Ticket"])
+    raiz, app, avisos = _app_de_prueba(monkeypatch, tmp_path)
+    try:
+        app.ir_a(4)
+        p = app.pagina_convertir
+        p.carpeta.set(str(mp3s))
+        raiz.update()
+        p.actualizar_lista()
+        assert p.modo == "mp3" and len(p.archivos) == 2
+        assert "Guardar los datos en los 2 MP3" in str(p.btn_convertir["text"])
+        assert str(p.combo_calidad["state"]) == "disabled"
+        assert (p.disco.get(), p.artista.get()) == ("Viejo", "Otra Banda")  # lo que ya tenían
+        assert "Con datos" in p.tabla.set("01_Help.mp3", "estado")
+        p.disco.set("A Hard Days Punk Night")
+        p.artista.set("La Banda")
+        p.poner_etiqueta("02_Ticket.mp3", "titulo", "Ticket To Ride")
+        p.convertir()
+        _esperar(raiz, app)
+        assert avisos[-1][0] == "exito" and "datos cargados en los 2 MP3" in avisos[-1][1]
+        assert leer_etiquetas(mp3s / "02_Ticket.mp3") == {"titulo": "Ticket To Ride", "orden": 2,
+                                                         "disco": "A Hard Days Punk Night", "artista": "La Banda"}
+        assert p.destino == mp3s and not (mp3s / "mp3").exists()
+    finally:
+        raiz.destroy()
+
+
 def test_paso_convertir_a_mp3(tmp_path, monkeypatch):
     from mutagen.mp3 import MP3
 
@@ -906,7 +976,7 @@ def test_paso_convertir_a_mp3(tmp_path, monkeypatch):
         app.ir_a(4)  # de entrada propone los masters del paso 2
         p = app.pagina_convertir
         assert Path(p.carpeta.get()) == tmp_path / "temas" / "masters"
-        assert [w.name for w in p.wavs] == ["01_Help.wav", "02_Twist and Shout.wav"]
+        assert [w.name for w in p.archivos] == ["01_Help.wav", "02_Twist and Shout.wav"] and p.modo == "wav"
         assert "Convertir 2 temas a MP3" in str(p.btn_convertir["text"])
         assert [str(v) for v in p.tabla.item("02_Twist and Shout.wav", "values")[1:3]] == ["2", "Twist and Shout"]
         assert not p.poner_etiqueta("01_Help.wav", "orden", "uno") and avisos[-1][0] == "aviso"

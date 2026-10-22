@@ -32,7 +32,7 @@ PASOS = [
      "Ajustá lo que no te convenza y compará con la versión anterior. Cada retoque tarda segundos."),
     ("Pasar a MP3", "con los datos del disco",
      "Convertí los temas terminados a MP3, mucho más livianos, con el título, el número de tema, "
-     "el disco y el artista ya puestos."),
+     "el disco y el artista ya puestos. ¿Ya tenés los MP3? Elegí su carpeta y cargales o corregí esos datos."),
     ("Tempo y click", "para grabar de nuevo",
      "Mide el tempo de cada tema, muestra dónde la banda se apura o se atrasa y arma un click "
      "con dos compases de cuenta para la próxima grabación."),
