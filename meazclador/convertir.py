@@ -15,6 +15,8 @@ CALIDADES = (320, 256, 192, 128)  # kbps
 CARPETA_MP3 = "mp3"
 SR_MP3 = (32000, 44100, 48000)  # las que admite un MP3 normal (MPEG-1)
 NO_FINALES = {"premaster.wav", "master_anterior.wav"}  # en la carpeta 'mezcla' de un tema
+TAPA_MAXIMO = 1000  # px: más grande no se ve mejor en ningún reproductor y engorda cada MP3
+EXTENSIONES_TAPA = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif")
 _NUMERO = re.compile(r"^\s*(\d{1,3})\s*[-_.)\s]+\s*(.*)$")
 
 
@@ -100,10 +102,40 @@ def datos_comunes(mp3s: list[Path]) -> dict:
     return comunes
 
 
-def etiquetar(mp3: Path, titulo: str, orden: int, total: int, disco: str = "", artista: str = "") -> None:
-    """Carga título, número, disco y artista. Lo demás que tenga el MP3 (la tapa, el año...) se respeta;
-    un disco o artista vacío deja el que ya tenía."""
-    from mutagen.id3 import ID3, TALB, TIT2, TPE1, TPE2, TRCK, ID3NoHeaderError
+def preparar_tapa(ruta: Path) -> bytes:
+    """La imagen de la tapa lista para meter en los MP3: JPG cuadrado-o-no, de hasta 1000 px."""
+    import io
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(ruta) as imagen:
+            imagen = imagen.convert("RGB")
+            imagen.thumbnail((TAPA_MAXIMO, TAPA_MAXIMO), Image.LANCZOS)
+            salida = io.BytesIO()
+            imagen.save(salida, "JPEG", quality=90)
+    except (OSError, UnidentifiedImageError) as e:
+        raise ValueError(f"No se pudo abrir la imagen de la tapa ({Path(ruta).name}): usá un JPG o PNG") from e
+    return salida.getvalue()
+
+
+def leer_tapa(mp3: Path) -> bytes | None:
+    """La tapa que ya tiene un MP3, si tiene."""
+    from mutagen.id3 import ID3, ID3NoHeaderError
+
+    try:
+        imagenes = ID3(mp3).getall("APIC")
+    except (ID3NoHeaderError, OSError):
+        return None
+    frente = [i for i in imagenes if i.type == 3] or imagenes
+    return frente[0].data if frente else None
+
+
+def etiquetar(mp3: Path, titulo: str, orden: int, total: int, disco: str = "", artista: str = "",
+              tapa: bytes | None = None) -> None:
+    """Carga título, número, disco, artista y (si se da) la tapa. Lo demás que tenga el MP3 (el año...) se
+    respeta; un disco, artista o tapa vacíos dejan lo que ya tenía."""
+    from mutagen.id3 import APIC, ID3, TALB, TIT2, TPE1, TPE2, TRCK, ID3NoHeaderError
 
     try:
         etiquetas = ID3(mp3)
@@ -123,7 +155,10 @@ def etiquetar(mp3: Path, titulo: str, orden: int, total: int, disco: str = "", a
     if artista:
         etiquetas.add(TPE1(encoding=3, text=artista))
         etiquetas.add(TPE2(encoding=3, text=artista))  # artista del disco: que no se separe en el celular
-    etiquetas.save(mp3)
+    if tapa:
+        etiquetas.delall("APIC")
+        etiquetas.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="Tapa", data=tapa))
+    etiquetas.save(mp3, v2_version=3)  # ID3 v2.3: el que leen todos (Windows, autos, celulares)
 
 
 def a_mp3(wav: Path, mp3: Path, kbps: int = 320, cancelar=lambda: False) -> None:
@@ -150,7 +185,7 @@ def a_mp3(wav: Path, mp3: Path, kbps: int = 320, cancelar=lambda: False) -> None
 
 
 def convertir(temas: list[Tema], destino: Path, kbps: int = 320, disco: str = "", artista: str = "",
-              avisar=print, cancelar=lambda: False) -> list[Path]:
+              avisar=print, cancelar=lambda: False, tapa: bytes | None = None) -> list[Path]:
     if kbps not in CALIDADES:
         raise ValueError(f"Calidad {kbps} kbps no válida: usá {', '.join(map(str, CALIDADES))}")
     if not temas:
@@ -161,7 +196,7 @@ def convertir(temas: list[Tema], destino: Path, kbps: int = 320, disco: str = ""
         avisar(f"=== {tema.archivo.name} ({i}/{len(temas)}) ===")
         mp3 = destino / (tema.archivo.stem + ".mp3")
         a_mp3(tema.archivo, mp3, kbps, cancelar)
-        etiquetar(mp3, tema.titulo, tema.orden, max(total, len(temas)), disco, artista)
+        etiquetar(mp3, tema.titulo, tema.orden, max(total, len(temas)), disco, artista, tapa)
         mb = mp3.stat().st_size / 1e6
         avisar(f"✔ {mp3}  ({mb:.1f} MB)")
         hechos.append(mp3)
@@ -169,7 +204,7 @@ def convertir(temas: list[Tema], destino: Path, kbps: int = 320, disco: str = ""
 
 
 def etiquetar_mp3s(temas: list[Tema], disco: str = "", artista: str = "", avisar=print,
-                   cancelar=lambda: False) -> list[Path]:
+                   cancelar=lambda: False, tapa: bytes | None = None) -> list[Path]:
     """Carga los datos del disco a MP3 que ya existen (no toca el audio)."""
     if not temas:
         raise ValueError("No hay archivos MP3")
@@ -178,6 +213,6 @@ def etiquetar_mp3s(temas: list[Tema], disco: str = "", artista: str = "", avisar
         if cancelar():
             raise Cancelado()
         avisar(f"=== {tema.archivo.name} ({i}/{len(temas)}) ===")
-        etiquetar(tema.archivo, tema.titulo, tema.orden, total, disco, artista)
+        etiquetar(tema.archivo, tema.titulo, tema.orden, total, disco, artista, tapa)
         avisar(f"✔ {tema.archivo.name}: {tema.orden}. {tema.titulo}")
     return [t.archivo for t in temas]

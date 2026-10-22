@@ -9,9 +9,12 @@ from pathlib import Path
 from tkinter import ttk
 
 from . import preferencias
-from .convertir import CALIDADES, CARPETA_MP3, archivos_en, datos_comunes, leer_etiquetas, temas_de, wavs_en
-from .estilo_ui import ACENTO, ERROR, EXITO, S1, S2, S3, S4, S6, TEXTO_2, TEXTO_3, CampoRuta, Tarjeta
+from .convertir import (CALIDADES, CARPETA_MP3, archivos_en, datos_comunes, leer_etiquetas, leer_tapa, temas_de,
+                        wavs_en)
+from .estilo_ui import ACENTO, ELEVADA, ERROR, EXITO, S1, S2, S3, S4, S6, TEXTO_2, TEXTO_3, CampoRuta, Tarjeta
 
+TIPOS_TAPA = [("Imágenes", "*.jpg *.jpeg *.png *.webp *.bmp *.gif"), ("Todos", "*.*")]
+LADO_TAPA = 72  # px de la vista previa
 CALIDADES_GUI = {
     "320 kbps · máxima": 320,
     "256 kbps · muy buena": 256,
@@ -49,9 +52,8 @@ class PaginaConvertir(ttk.Frame):
         origen.grid(row=0, column=0, sticky="ew")
         origen.columnconfigure(0, weight=1)
         self.carpeta = tk.StringVar()
-        CampoRuta(origen, "Carpeta con los WAV finales o con MP3", self.carpeta,
-                  ayuda="Con WAV (la carpeta 'masters' del paso 2): los pasa a MP3 en una carpeta 'mp3' al lado. "
-                        "Con MP3: sólo les carga los datos del disco.").grid(row=0, column=0, sticky="ew")
+        CampoRuta(origen, "Carpeta con los WAV finales (la 'masters' del paso 2) o con MP3", self.carpeta).grid(
+            row=0, column=0, sticky="ew")
         self.carpeta.trace_add("write", lambda *_: self.after(80, self.actualizar_lista))
 
         # --- datos del disco
@@ -76,10 +78,26 @@ class PaginaConvertir(ttk.Frame):
             w.grid(row=1, column=0, sticky="ew")
             if etiqueta == "Calidad":
                 self.combo_calidad = w
-        ttk.Label(datos, style="Tarjeta.Pista.TLabel",
-                  text="Cada MP3 se guarda con su título, número de tema, disco y artista: así se ve bien "
-                       "en el celular, en la compu o en el auto.").grid(row=1, column=0, columnspan=3,
-                                                                        sticky="w", pady=(S2, 0))
+        # tapa del disco: vista previa + archivo
+        fila_tapa = ttk.Frame(datos, style="Superficie.TFrame")
+        fila_tapa.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(S3, 0))
+        fila_tapa.columnconfigure(1, weight=1)
+        marco_tapa = tk.Frame(fila_tapa, width=LADO_TAPA, height=LADO_TAPA, background=ELEVADA)
+        marco_tapa.grid(row=0, column=0, sticky="w", padx=(0, S4))
+        marco_tapa.grid_propagate(False)
+        marco_tapa.pack_propagate(False)
+        self.vista_tapa = tk.Label(marco_tapa, text="Sin\ntapa", background=ELEVADA, foreground=TEXTO_3,
+                                   font=self.app.fuentes.chica)
+        self.vista_tapa.pack(fill="both", expand=True)
+        self._imagen_tapa = None  # referencia: si no, Tk borra la imagen
+        self.tapa = tk.StringVar()
+        self.ayuda_tapa = tk.StringVar()
+        campo = CampoRuta(fila_tapa, "Tapa del disco (opcional, JPG o PNG)", self.tapa, archivo=True,
+                          tipos=TIPOS_TAPA)
+        campo.grid(row=0, column=1, sticky="ew")
+        ttk.Label(campo, textvariable=self.ayuda_tapa, style="Tarjeta.Pista.TLabel").grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(S1, 0))
+        self.tapa.trace_add("write", lambda *_: self._mostrar_tapa())
 
         # --- la lista de temas: número y título editables
         lista = Tarjeta(self, relleno=S4)
@@ -92,7 +110,7 @@ class PaginaConvertir(ttk.Frame):
         ttk.Label(lista, text="Doble clic en el número o el título para cambiarlos", style="Tarjeta.Pista.TLabel"
                   ).grid(row=0, column=0, columnspan=2, sticky="e", pady=(0, S2))
         self.tabla = ttk.Treeview(lista, columns=("estado", "orden", "titulo", "archivo"), show="headings",
-                                  selectmode="browse", height=5)
+                                  selectmode="browse", height=4)
         for col, titulo, ancho, estirar, alin in (("estado", "ESTADO", 140, False, "w"), ("orden", "Nº", 50, False, "e"),
                                                   ("titulo", "TÍTULO", 280, True, "w"),
                                                   ("archivo", "ARCHIVO", 220, True, "w")):
@@ -160,6 +178,7 @@ class PaginaConvertir(ttk.Frame):
                     if comunes[clave]:
                         var.set(comunes[clave])
         self.archivos, self.modo = archivos, modo
+        self._mostrar_tapa()
         self.tabla.delete(*self.tabla.get_children())
         for a in archivos:
             self._fila(a, self._estado_inicial(a))
@@ -181,6 +200,41 @@ class PaginaConvertir(ttk.Frame):
             self.vacio.place(relx=0.5, rely=0.55, anchor="center")
         self.btn_convertir.configure(state="normal" if hay else "disabled")
         self.btn_abrir.configure(state="normal" if self.destino and self.destino.is_dir() else "disabled")
+
+    # ---------------------------------------------------------- tapa
+
+    def tapa_actual(self) -> bytes | None:
+        """La tapa que tienen los MP3 elegidos (si ya tenían una)."""
+        if self.modo == "mp3" and self.archivos:
+            return leer_tapa(self.archivos[0])
+        return None
+
+    def _mostrar_tapa(self) -> None:
+        """Vista previa: la imagen elegida, o la que ya tienen los MP3."""
+        import io
+
+        ruta = self.tapa.get().strip()
+        datos, ayuda = None, "Sin tapa: elegí una imagen (se achica sola a 1000 px)."
+        if ruta:
+            try:
+                datos = Path(ruta).read_bytes()
+                ayuda = "Se va a guardar en todos los MP3."
+            except OSError:
+                ayuda = "No se encuentra esa imagen."
+        elif (actual := self.tapa_actual()) is not None:
+            datos, ayuda = actual, "Tapa que ya tienen los MP3 (elegí otra imagen para cambiarla)."
+        self._imagen_tapa = None
+        if datos:
+            try:
+                from PIL import Image, ImageTk
+
+                imagen = Image.open(io.BytesIO(datos)).convert("RGB")
+                imagen.thumbnail((LADO_TAPA, LADO_TAPA))
+                self._imagen_tapa = ImageTk.PhotoImage(imagen)
+            except Exception:
+                ayuda = "Esa imagen no se puede abrir: usá un JPG o PNG."
+        self.vista_tapa.configure(image=self._imagen_tapa or "", text="" if self._imagen_tapa else "Sin\ntapa")
+        self.ayuda_tapa.set(ayuda)
 
     def _estado_inicial(self, archivo: Path) -> str:
         if self.modo == "mp3":
@@ -305,6 +359,13 @@ class PaginaConvertir(ttk.Frame):
         else:
             args = ["convertir", str(carpeta), f"--kbps={CALIDADES_GUI.get(self.calidad.get(), CALIDADES[0])}"]
         args += [f"--disco={disco}", f"--artista={artista}"]
+        tapa = self.tapa.get().strip()
+        if tapa:
+            if not Path(tapa).is_file():
+                self.app.notificar("No se encuentra la imagen de la tapa: elegila de nuevo o dejá el campo vacío.",
+                                   "aviso")
+                return
+            args.append(f"--tapa={tapa}")
         for a in self.archivos:
             orden, titulo = self.etiquetas[a.name]
             args += [f"--orden={a.name}={orden}", f"--titulo={a.name}={titulo}"]

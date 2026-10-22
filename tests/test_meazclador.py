@@ -936,6 +936,43 @@ def test_etiquetar_mp3_que_ya_existen(tmp_path):
     assert leer_etiquetas(mp3s / "01_Help.mp3")["disco"] == "A Hard Days Punk Night"
 
 
+def _imagen_de_prueba(ruta: Path, lado=2000):
+    from PIL import Image
+
+    Image.new("RGB", (lado, lado // 2), (200, 30, 40)).save(ruta)
+    return ruta
+
+
+def test_tapa_del_disco(tmp_path):
+    import io
+
+    from mutagen.mp3 import MP3
+    from PIL import Image
+
+    from meazclador.cli import main as cli
+    from meazclador.convertir import leer_etiquetas, leer_tapa
+
+    tapa = _imagen_de_prueba(tmp_path / "tapa.png")
+    # Al convertir desde WAV
+    _masters_de_prueba(tmp_path / "masters", ["01_Help"], segundos=2)
+    assert cli(["convertir", str(tmp_path / "masters"), "--disco", "Disco", "--tapa", str(tapa)]) == 0
+    datos = leer_tapa(tmp_path / "masters" / "mp3" / "01_Help.mp3")
+    imagen = Image.open(io.BytesIO(datos))
+    assert imagen.format == "JPEG" and max(imagen.size) == 1000  # achicada, con la proporción original
+    assert imagen.size == (1000, 500)
+    # A MP3 que ya existen: cambia la tapa y respeta el resto
+    otra = _imagen_de_prueba(tmp_path / "otra.jpg", lado=400)
+    assert cli(["etiquetar", str(tmp_path / "masters" / "mp3"), "--tapa", str(otra)]) == 0
+    mp3 = tmp_path / "masters" / "mp3" / "01_Help.mp3"
+    assert Image.open(io.BytesIO(leer_tapa(mp3))).size == (400, 200)
+    assert len(MP3(mp3).tags.getall("APIC")) == 1 and leer_etiquetas(mp3)["disco"] == "Disco"
+    # Sin --tapa queda la que tenía; una imagen rota da un error claro.
+    assert cli(["etiquetar", str(tmp_path / "masters" / "mp3"), "--artista", "X"]) == 0
+    assert Image.open(io.BytesIO(leer_tapa(mp3))).size == (400, 200)
+    (tmp_path / "rota.png").write_bytes(b"no es una imagen")
+    assert cli(["etiquetar", str(tmp_path / "masters" / "mp3"), "--tapa", str(tmp_path / "rota.png")]) == 1
+
+
 def test_paso_convertir_con_mp3(tmp_path, monkeypatch):
     from meazclador.convertir import leer_etiquetas
 
@@ -952,6 +989,10 @@ def test_paso_convertir_con_mp3(tmp_path, monkeypatch):
         assert str(p.combo_calidad["state"]) == "disabled"
         assert (p.disco.get(), p.artista.get()) == ("Viejo", "Otra Banda")  # lo que ya tenían
         assert "Con datos" in p.tabla.set("01_Help.mp3", "estado")
+        assert p.vista_tapa.cget("text") == "Sin\ntapa" and "Sin tapa" in p.ayuda_tapa.get()
+        p.tapa.set(str(_imagen_de_prueba(tmp_path / "tapa.png", lado=600)))
+        raiz.update()
+        assert p.vista_tapa.cget("image") and "todos los MP3" in p.ayuda_tapa.get()
         p.disco.set("A Hard Days Punk Night")
         p.artista.set("La Banda")
         p.poner_etiqueta("02_Ticket.mp3", "titulo", "Ticket To Ride")
@@ -961,6 +1002,13 @@ def test_paso_convertir_con_mp3(tmp_path, monkeypatch):
         assert leer_etiquetas(mp3s / "02_Ticket.mp3") == {"titulo": "Ticket To Ride", "orden": 2,
                                                          "disco": "A Hard Days Punk Night", "artista": "La Banda"}
         assert p.destino == mp3s and not (mp3s / "mp3").exists()
+        from meazclador.convertir import leer_tapa
+
+        assert leer_tapa(mp3s / "01_Help.mp3") and leer_tapa(mp3s / "02_Ticket.mp3")
+        # Al volver a elegir la carpeta (sin imagen elegida), muestra la tapa que ya tienen.
+        p.tapa.set("")
+        raiz.update()
+        assert p.vista_tapa.cget("image") and "ya tienen" in p.ayuda_tapa.get()
     finally:
         raiz.destroy()
 

@@ -172,7 +172,7 @@ def _con_cambios(temas, args) -> None:
 
 
 def cmd_convertir(args) -> int:
-    from .convertir import CARPETA_MP3, convertir, temas_de, wavs_en
+    from .convertir import CARPETA_MP3, convertir, preparar_tapa, temas_de, wavs_en
 
     wavs = wavs_en(args.carpeta)
     if not wavs:
@@ -182,13 +182,14 @@ def cmd_convertir(args) -> int:
     _con_cambios(temas, args)
     destino = args.salida or wavs[0].parent / CARPETA_MP3
     print(f"Convirtiendo {len(temas)} temas a MP3 ({args.kbps} kbps) en {destino}")
-    convertir(temas, destino, args.kbps, args.disco, args.artista)
+    tapa = preparar_tapa(args.tapa) if args.tapa else None
+    convertir(temas, destino, args.kbps, args.disco, args.artista, tapa=tapa)
     print(f"\nListo: {len(temas)} MP3 en {destino}")
     return 0
 
 
 def cmd_etiquetar(args) -> int:
-    from .convertir import etiquetar_mp3s, mp3s_en, temas_de
+    from .convertir import etiquetar_mp3s, mp3s_en, preparar_tapa, temas_de
 
     mp3s = mp3s_en(args.carpeta)
     if not mp3s:
@@ -197,7 +198,8 @@ def cmd_etiquetar(args) -> int:
     temas = temas_de(mp3s)
     _con_cambios(temas, args)
     print(f"Cargando los datos del disco en {len(temas)} MP3 de {args.carpeta}")
-    etiquetar_mp3s(temas, args.disco, args.artista)
+    tapa = preparar_tapa(args.tapa) if args.tapa else None
+    etiquetar_mp3s(temas, args.disco, args.artista, tapa=tapa)
     print(f"\nListo: datos cargados en {len(temas)} MP3")
     return 0
 
@@ -280,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     pv.add_argument("--artista", default="", help="nombre de la banda")
     pv.add_argument("--titulo", action="append", metavar="ARCHIVO=TÍTULO", help="título de un tema (si no, sale del nombre)")
     pv.add_argument("--orden", action="append", metavar="ARCHIVO=N", help="número de tema (si no, sale del nombre)")
+    pv.add_argument("--tapa", type=Path, metavar="IMAGEN", help="tapa del disco (JPG o PNG)")
     pv.set_defaults(func=cmd_convertir)
 
     pe = sub.add_parser("etiquetar", help="cargar título, número, disco y artista a MP3 que ya existen")
@@ -289,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     pe.add_argument("--titulo", action="append", metavar="ARCHIVO=TÍTULO",
                     help="título de un tema (si no, el que ya tiene o el del nombre del archivo)")
     pe.add_argument("--orden", action="append", metavar="ARCHIVO=N", help="número de tema")
+    pe.add_argument("--tapa", type=Path, metavar="IMAGEN", help="tapa del disco (JPG o PNG; sin esto, queda la que tengan)")
     pe.set_defaults(func=cmd_etiquetar)
 
     pt = sub.add_parser("tempo", help="medir el tempo de cada tema, ver dónde se va de tempo y armar clicks")
@@ -309,6 +313,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.comando in ("convertir", "etiquetar") and not args.carpeta.is_dir():
         print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)
+        return 1
+    if args.comando in ("convertir", "etiquetar") and args.tapa and not args.tapa.is_file():
+        print(f"No existe la imagen {args.tapa}", file=sys.stderr)
         return 1
     if args.comando == "mezclar" and not args.carpeta.is_dir():
         print(f"No existe la carpeta {args.carpeta}", file=sys.stderr)

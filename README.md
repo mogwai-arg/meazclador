@@ -60,14 +60,16 @@ mismo punto, y ajustá voz, coros, guitarras, bajo, batería, reverb, *sacar sal
 si una voz quedó silenciada por no cantar, tildala para que suene.
 
 **4 · Pasar a MP3.** Elegí la carpeta con los WAV finales (de entrada propone `temas/masters`), escribí
-el **nombre del disco** y el **artista**, y elegí la calidad (320 kbps de entrada). El título y el número
+el **nombre del disco** y el **artista**, elegí la **tapa** (un JPG o PNG; se ve en la pantalla y se achica
+sola a 1000 px para que los MP3 no pesen de más) y la calidad (320 kbps de entrada). El título y el número
 de cada tema salen del nombre del archivo (`03_Help.wav` → tema 3, "Help"); con doble clic en la lista
 se cambian. Los MP3 quedan en una carpeta `mp3` al lado de los WAV, con título, número, disco y artista
 ya cargados, así se ven bien en el celular, la compu o el auto. Un tema de 3 minutos pasa de ~50 MB a ~7 MB.
 
 ¿Ya tenés los temas en MP3? Elegí esa carpeta en el mismo paso: muestra los datos que ya tienen (título,
 número, disco y artista), los corregís y *Guardar los datos* los carga en los mismos MP3, sin volver a
-codificar el audio y sin borrar lo demás que tengan (por ejemplo la tapa).
+codificar el audio y sin borrar lo demás que tengan. Si ya tienen tapa, se ve en la pantalla; para cambiarla,
+elegí otra imagen.
 
 **5 · Tempo y click.** Elegí una carpeta con temas en MP3 o WAV (de entrada propone la carpeta `mp3`
 del paso 4) y tocá *Medir tempo y armar clicks*. Para cada tema muestra:
@@ -125,7 +127,8 @@ meazclador convertir temas/masters --disco "Ramoneando" --artista "La Banda" \
     --titulo "03_Help.wav=Help!" --orden "03_Help.wav=1"
 
 # cargar o corregir los datos de MP3 que ya existen
-meazclador etiquetar mis_mp3/ --disco "A Hard Days Punk Night" --artista "La Banda" --titulo "07_Misery.mp3=Misery"
+meazclador etiquetar mis_mp3/ --disco "A Hard Days Punk Night" --artista "La Banda" --tapa tapa.jpg \
+    --titulo "07_Misery.mp3=Misery"
 
 # medir el tempo, ver dónde se va de tempo y armar clicks (con arreglos a mano)
 meazclador tempo temas/masters/mp3 --gradual 05_The_Night_Before.mp3 --bpm 07_From_Me_To_You.mp3=163

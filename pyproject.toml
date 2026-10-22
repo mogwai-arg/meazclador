@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meazclador"
-version = "0.5.1"
+version = "0.5.2"
 description = "Mezcla y masterización automática de pistas multipista"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,6 +19,7 @@ dependencies = [
     "setuptools<81",
     "sounddevice>=0.4.6",
     "mutagen>=1.45",
+    "pillow>=9",
 ]
 
 [project.optional-dependencies]

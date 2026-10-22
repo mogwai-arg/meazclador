@@ -25,9 +25,15 @@ def autoprueba() -> int:
             codigo = cli(["mezclar", str(pistas), "--estilo", estilo, "--afinar", "0.5", "--tonalidad", "Am"])
             ok = ok and codigo == 0 and (pistas / "mezcla" / "master.wav").stat().st_size > 100_000
         # Pasar a MP3 con etiquetas (el codificador y mutagen tienen que venir dentro del ejecutable).
-        codigo = cli(["convertir", str(pistas / "mezcla"), "--disco", "Prueba", "--artista", "Meazclador"])
+        from PIL import Image
+
+        from .convertir import leer_tapa
+
+        Image.new("RGB", (1200, 1200), (245, 165, 36)).save(Path(tmp) / "tapa.png")
+        codigo = cli(["convertir", str(pistas / "mezcla"), "--disco", "Prueba", "--artista", "Meazclador",
+                      "--tapa", str(Path(tmp) / "tapa.png")])
         mp3 = pistas / "mezcla" / "mp3" / "master.mp3"
-        ok = ok and codigo == 0 and mp3.is_file() and mp3.stat().st_size > 50_000
+        ok = ok and codigo == 0 and mp3.is_file() and mp3.stat().st_size > 50_000 and bool(leer_tapa(mp3))
         # Medir el tempo y armar el click.
         codigo = cli(["tempo", str(mp3.parent)])
         ok = ok and codigo == 0 and any((mp3.parent / "clicks").glob("*_click_*bpm.mp3"))

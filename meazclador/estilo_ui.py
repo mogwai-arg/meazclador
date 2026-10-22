@@ -256,7 +256,8 @@ class CampoRuta(ttk.Frame):
     """Etiqueta arriba + campo + botón 'Elegir…' (carpeta o archivo)."""
 
     def __init__(self, padre, etiqueta: str, variable: tk.StringVar, archivo: bool = False,
-                 fondo: str = "tarjeta", ayuda: str | None = None, ancho: int | None = None):
+                 fondo: str = "tarjeta", ayuda: str | None = None, ancho: int | None = None,
+                 tipos: list[tuple[str, str]] | None = None):
         prefijo = "Tarjeta." if fondo == "tarjeta" else ""
         super().__init__(padre, style="Superficie.TFrame" if fondo == "tarjeta" else "TFrame")
         self.columnconfigure(0, weight=1)
@@ -270,7 +271,8 @@ class CampoRuta(ttk.Frame):
             inicial = variable.get().strip() or str(Path.home())
             if archivo:
                 r = filedialog.askopenfilename(initialdir=Path(inicial).parent if Path(inicial).is_file() else inicial,
-                                               filetypes=[("Audio", "*.wav *.flac *.aif *.aiff"), ("Todos", "*.*")])
+                                               filetypes=tipos or [("Audio", "*.wav *.flac *.aif *.aiff"),
+                                                                   ("Todos", "*.*")])
             else:
                 r = filedialog.askdirectory(initialdir=inicial)
             if r:
