@@ -5,6 +5,8 @@ name: Ejecutables
 on:
   push:
     branches: [main, master, "claude/**"]
+    # La página del profe de voz (docs/) no cambia los ejecutables.
+    paths-ignore: ["docs/**"]
   workflow_dispatch:
 
 permissions:
