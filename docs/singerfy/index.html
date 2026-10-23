@@ -285,7 +285,9 @@ details.panel > summary { font-size: 16px; }
 .nivel-badge { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 900; letter-spacing: .06em; border: 2px solid currentColor; border-radius: 8px; padding: 0 8px; }
 .nv1, .nv2 { color: var(--turquesa); } .nv3 { color: #9fe07a; } .nv4, .nv5 { color: var(--amarillo); } .nv6, .nv7 { color: var(--coral); }
 .btn-previa { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--tinta-2); background: none; color: var(--tinta); display: grid; place-items: center; font-size: 16px; cursor: pointer; }
-.hecho-para { display: flex; gap: 16px; align-items: center; justify-content: space-between; background: rgba(243,239,220,.08); border: 1px solid rgba(243,239,220,.16); border-radius: var(--r-interno); padding: 12px 16px; width: 100%; max-width: 420px; text-align: left; }
+.hecho-para { display: flex; gap: 16px; align-items: center; justify-content: space-between; background: var(--panel-2); border-radius: var(--r-interno); padding: 12px 16px; width: 100%; text-align: left; }
+#j-preparar .pasos-tema { max-width: none; } #j-preparar .paso-tema { background: var(--panel-2); border-color: var(--linea); color: var(--tinta); } #j-preparar .paso-tema small { color: var(--tinta-2); }
+#j-preparar .hecho-para small { color: var(--tinta-2); }
 .hecho-para small { color: var(--esc-texto-2); font-size: 13px; }
 /* ---- resultado de la partida */
 .resultado-juego { background: var(--panel); border-radius: var(--r-tarjeta); padding: 32px 16px; display: grid; gap: 16px; justify-items: center; text-align: center; }
@@ -361,6 +363,15 @@ details.panel > summary { font-size: 16px; }
 .reloj-grande { font-size: 39px; font-weight: 900; color: var(--amarillo); line-height: 1.1; font-variant-numeric: tabular-nums; min-height: 44px; }
 .r-oido { font-size: 15px; font-weight: 800; color: var(--ok); min-height: 22px; }
 .aviso-sonido { font-size: 13px; font-weight: 700; color: var(--tinta-2); background: var(--panel-2); border-radius: var(--r-chico); padding: 8px 12px; margin: 0; }
+.pasos-tema { display: grid; gap: 8px; width: 100%; max-width: 420px; }
+.paso-tema { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: center; text-align: left; border: 1px solid rgba(243,239,220,.18); background: rgba(243,239,220,.06);
+  color: var(--esc-texto); border-radius: var(--r-interno); padding: 12px; cursor: pointer; min-height: 64px; }
+.paso-tema .n { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; background: rgba(243,239,220,.12); }
+.paso-tema.hecho .n { background: var(--turquesa); color: #0b3d33; } .paso-tema.activo { border-color: var(--amarillo); } .paso-tema.activo .n { background: var(--amarillo); color: #3b2c00; }
+.paso-tema b { display: block; font-size: 16px; } .paso-tema small { font-size: 13px; color: var(--esc-texto-2); line-height: 1.4; }
+.j-inicio { overflow-y: auto; align-content: center; }
+#v-juego:has(#j-preparar:not([hidden])) .escenario-juego { height: 38vh; min-height: 240px; }
+#v-juego:has(#j-preparar:not([hidden])) .j-inicio p { display: none; }
 @media (max-width: 720px) {
   .calent-card { grid-template-columns: 48px 1fr 40px; gap: 12px; }
   .calent-card .ico { width: 48px; height: 48px; } .calent-card i { width: 40px; height: 40px; }
@@ -838,14 +849,21 @@ details.panel > summary { font-size: 16px; }
       <div class="j-inicio" id="j-inicio">
         <h2 id="j-titulo">Embocá la nota</h2>
         <p id="j-desc">Las notas vienen de la derecha. Cuando pasan por la línea amarilla, cantalas con "aaa". Tu voz es el puntito: subilo o bajalo hasta que toque la nota.</p>
+        <button class="btn primario grande" id="j-empezar">▶ Empezar</button>
+        <p class="sutil-claro" id="j-mic"></p>
+      </div>
+    </div>
+    <div class="panel" id="j-preparar" hidden>
+      <div><div class="etiqueta">Antes de jugar</div><h2>Preparate</h2></div>
+        <div class="pasos-tema" id="j-pasos" hidden>
+          <button class="paso-tema" id="j-escuchar"><span class="n" id="j-escuchar-n">1</span><span><b id="j-escuchar-t">Escuchala</b><small>Suena la pista con la melodía: cantá despacito encima.</small></span></button>
+          <button class="paso-tema" id="j-mitono"><span class="n" id="j-mitono-n">2</span><span><b id="j-mitono-t">Encontrá tu tono</b><small id="j-mitono-s">Cantá el comienzo sin música, como te salga.</small></span></button>
+        </div>
         <div class="hecho-para" id="j-tono-caja" hidden>
           <span>Hecho para tu voz: <b id="j-tipo">Tenor</b><br><small id="j-trans">tono original</small></span>
           <span class="fila" style="gap:8px"><button class="btn chico" id="j-tono-menos" aria-label="Más grave">− grave</button><button class="btn chico" id="j-tono-mas" aria-label="Más agudo">+ agudo</button></span>
         </div>
-        <label class="campo" id="j-fondo-caja" hidden style="max-width:320px;width:100%;color:var(--esc-texto)">Mientras cantás suena<select id="j-fondo"></select></label>
-        <button class="btn primario grande" id="j-empezar">▶ Empezar</button>
-        <p class="sutil-claro" id="j-mic"></p>
-      </div>
+        <label class="campo" id="j-fondo-caja" hidden style="width:100%">Mientras cantás suena<select id="j-fondo"></select></label>
     </div>
     <div class="resultado-juego" id="j-final" hidden>
       <div class="etiqueta" id="j-final-etq">Resultado</div>
@@ -2728,6 +2746,10 @@ async function abrirJuego(cfg) {
   $("j-letra-a").textContent = ""; $("j-letra-s").textContent = "";
   prepararNotasJuego(); ir("juego"); requestAnimationFrame(() => dibujarJuego(cfg.desde - 1, NaN));
   $("j-tono-caja").hidden = cfg.tipo !== "tema"; $("j-fondo-caja").hidden = cfg.tipo !== "tema"; pintarTonoJuego();
+  $("j-pasos").hidden = cfg.tipo !== "tema"; $("j-preparar").hidden = cfg.tipo !== "tema"; $("j-empezar").innerHTML = ""; $("j-empezar").append(cfg.tipo === "tema" ? "▶ Jugar" : "▶ Empezar");
+  for (const id of ["j-escuchar", "j-mitono"]) $(id).classList.remove("hecho", "activo");
+  $("j-escuchar-n").textContent = "1"; $("j-mitono-n").textContent = "2"; $("j-escuchar-t").textContent = "Escuchala"; $("j-mitono-t").textContent = "Encontrá tu tono";
+  if (cfg.tipo === "tema") { const L0 = cfg.L && cfg.L[0]; $("j-mitono-s").textContent = L0 ? `Cantá «${L0}» sin música, como te salga.` : "Cantá el comienzo sin música, como te salga."; if (perfil.tonos && perfil.tonos[cfg.cancion.id] != null) { $("j-mitono").classList.add("hecho"); $("j-mitono-n").textContent = "✓"; } }
   if (cfg.tipo === "tema") {
     cfg.blob = cfg.cancion.acompanamiento ? null : await leerAudioLocal(cfg.cancion.id);
     const ops = [];
@@ -2750,6 +2772,60 @@ for (const [id, d] of [["j-tono-menos", -1], ["j-tono-mas", 1]]) $(id).onclick =
   prepararNotasJuego(); pintarTonoJuego(); dibujarJuego(cfg.desde - 1, NaN); tocarNota((juego.notas[0] || { m: 60 }).m, audio().currentTime + 0.05, 0.8);
 };
 $("j-fondo").onchange = () => { juego.cfg.fondo = $("j-fondo").value; };
+// ---- antes de jugar un tema: escucharlo y encontrar tu tono
+const previa = { sonando: false, escuchando: false, timer: null, datos: [] };
+function cortarPrevia() { if (previa.sonando && !juego.activo && !juego.terminado) $("j-inicio").hidden = false; previa.sonando = false; previa.escuchando = false; clearTimeout(previa.timer); pararSonido(); try { previa.fuente && previa.fuente.disconnect(); } catch {} previa.fuente = null; $("j-escuchar").classList.remove("activo"); $("j-mitono").classList.remove("activo"); $("j-escuchar-t").textContent = "Escuchala"; $("j-mitono-t").textContent = "Encontrá tu tono"; }
+$("j-escuchar").onclick = async () => {
+  const cfg = juego.cfg; if (previa.sonando) return cortarPrevia(); cortarPrevia(); desbloquearAudio();
+  previa.sonando = true; $("j-inicio").hidden = true; $("j-escuchar").classList.add("activo"); $("j-escuchar-t").textContent = "Sonando… (tocá para cortar)";
+  const op = { trans: cfg.trans, desde: cfg.desde, hasta: cfg.hasta, vel: 1, cuenta: false };
+  const dibujar = (t) => { if (previa.sonando && t != null) dibujarJuego(t, NaN); };
+  try {
+    if (cfg.fondo === "pista" && cfg.cancion.acompanamiento) tocarPista(cfg.cancion, { ...op, guia: true }, dibujar);
+    else if ((cfg.fondo === "audio" || cfg.fondo === "sinvoz") && cfg.blob) await tocarAudioCancion(cfg.cancion.id, cfg.blob, op, dibujar, (x) => { $("j-escuchar-t").textContent = "Pasando a tu tono… " + Math.round(x * 100) + " %"; });
+    else tocarMelodia(cfg.notas, op, dibujar);
+  } catch {}
+  previa.timer = setTimeout(() => { cortarPrevia(); $("j-escuchar").classList.add("hecho"); $("j-escuchar-n").textContent = "✓"; }, (cfg.hasta - cfg.desde + 0.6) * 1000);
+};
+$("j-mitono").onclick = async () => {
+  const cfg = juego.cfg; if (previa.escuchando) return terminarMiTono(); cortarPrevia(); desbloquearAudio();
+  let st; try { st = await pedirMicrofono(); } catch { $("j-mic").textContent = "Necesito el micrófono para escucharte."; return; }
+  const c = audio(); previa.fuente = c.createMediaStreamSource(st); previa.an = c.createAnalyser(); previa.an.fftSize = 2048; previa.fuente.connect(previa.an); previa.buf = new Float32Array(2048);
+  previa.escuchando = true; previa.datos = []; previa.inicio = c.currentTime;
+  $("j-mitono").classList.add("activo"); $("j-mitono-t").textContent = "Te escucho… (tocá para terminar)"; $("j-mic").textContent = "Cantá tranquilo, en tu voz, sin música.";
+  const frase = Math.min(10, Math.max(4, ((cfg.T && cfg.T[1] != null ? cfg.T[1] - cfg.T[0] : 6)) * 1.6 + 2));
+  const cuadro = () => {
+    if (!previa.escuchando) return;
+    const mm = detectarVoz(previa.an, previa.buf); if (!isNaN(mm)) previa.datos.push(mm);
+    if (audio().currentTime - previa.inicio > frase) return terminarMiTono();
+    requestAnimationFrame(cuadro);
+  };
+  requestAnimationFrame(cuadro);
+};
+async function terminarMiTono() {
+  const cfg = juego.cfg, datos = previa.datos; cortarPrevia();
+  if (datos.length < 45) { $("j-mic").textContent = "Casi no te escuché. Probá de nuevo, cantando la frase completa cerca del celu."; return; }
+  // La frase de referencia: el primer renglón de la letra (o las primeras notas de esta parte), en el tono original.
+  const fin = cfg.T && cfg.T[1] != null ? cfg.T[1] : Infinity;
+  let ref = cfg.notas.filter((n) => n[0] >= cfg.desde && n[0] < Math.min(fin, cfg.hasta)); if (ref.length < 4) ref = cfg.notas.filter((n) => n[0] >= cfg.desde).slice(0, 8);
+  // Se compara qué notas aparecen (sin importar octava ni ritmo) y se busca el corrimiento que mejor encaja.
+  const hist = (vals, pesos) => { const h = new Array(12).fill(0); vals.forEach((m, i) => { const f = ((m % 12) + 12) % 12, k = Math.floor(f), r = f - k, w = pesos ? pesos[i] : 1; h[k % 12] += (1 - r) * w; h[(k + 1) % 12] += r * w; }); const tot = h.reduce((x, y) => x + y, 0) || 1; return h.map((x) => x / tot); };
+  const hr = hist(ref.map((n) => n[2]), ref.map((n) => n[1])), hv = hist(datos);
+  const pesados = []; for (const [, d, m] of ref) for (let k = 0; k < Math.max(1, Math.round(d * 10)); k++) pesados.push(m);
+  const aprox = mediana(datos) - mediana(pesados);
+  let t = 0, mejor = -1;
+  for (let sh = -6; sh <= 5; sh++) {
+    let sc = 0; for (let k = 0; k < 12; k++) sc += hr[k] * hv[(((k + sh) % 12) + 12) % 12];
+    const dist = Math.abs(((Math.round(aprox - sh) % 12) + 12) % 12);   // desempate: lo más cerca del promedio
+    sc -= Math.min(dist, 12 - dist) * 1e-4;
+    if (sc > mejor) { mejor = sc; t = sh; }
+  }
+  cfg.trans = t; perfil.tonos = { ...(perfil.tonos || {}), [cfg.cancion.id]: t }; try { await Guardado.guardar("perfil/javi", perfil); } catch {}
+  prepararNotasJuego(); pintarTonoJuego(); dibujarJuego(cfg.desde - 1, NaN);
+  $("j-mitono").classList.add("hecho"); $("j-mitono-n").textContent = "✓";
+  $("j-mic").textContent = t === 0 ? "¡Lo cantás en el tono original! Ya podés jugar." : `Listo: pasé el tema a tu tono (${t > 0 ? "+" : ""}${t}). Ya podés jugar.`;
+  try { tocarNota((juego.notas[0] || { m: 60 }).m, audio().currentTime + 0.05, 0.9); } catch {}
+}
 function prepararNotasJuego() {
   const c = juego.cfg;
   juego.notas = c.notas.map(([t, d, m], i) => ({ t, d, m: m + c.trans, syl: c.silabas ? c.silabas[i] || "" : "", hit: 0, tot: 0, voz: 0, cents: [], estado: null, primera: null, finTot: 0, finHit: 0 })).filter((n) => n.t >= c.desde && n.t < c.hasta);
@@ -2758,11 +2834,12 @@ function prepararNotasJuego() {
   Object.assign(juego, { puntos: 0, combo: 0, comboMax: 0, rastro: [], chispas: [] });
 }
 $("j-empezar").onclick = async () => {
+  cortarPrevia(); desbloquearAudio();
   let stream;
   try { if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw 0; stream = await pedirMicrofono(); }
   catch { $("j-mic").textContent = window.claude ? "Dentro de claude.ai el micrófono en vivo está bloqueado. Abrí Singerfy desde su ícono en el iPhone: " + SINGERFY_URL : "Necesito permiso para usar el micrófono. Revisá Ajustes › Safari › Micrófono."; return; }
   const c = audio(); juego.fuente = c.createMediaStreamSource(stream); juego.an = c.createAnalyser(); juego.an.fftSize = 2048; juego.fuente.connect(juego.an); juego.buf = new Float32Array(2048);
-  prepararNotasJuego(); $("j-inicio").hidden = true; juego.activo = true; juego.terminado = false;
+  prepararNotasJuego(); $("j-inicio").hidden = true; $("j-preparar").hidden = true; juego.activo = true; juego.terminado = false;
   const cfg = juego.cfg, op = { trans: cfg.trans, desde: cfg.desde, hasta: cfg.hasta, vel: cfg.vel };
   if ((cfg.fondo === "audio" || cfg.fondo === "sinvoz") && cfg.blob) {
     $("j-inicio").hidden = false; $("j-mic").textContent = cfg.trans ? "Pasando la canción a tu tono…" : "Preparando la canción…";
@@ -2846,6 +2923,7 @@ function dibujarJuego(tt, vozM) {
   if (juego.activo) { const falta = juego.notas.length ? juego.notas[0].t - tt : 0; if (falta > 0.2) { g.fillStyle = C.tinta; g.font = "900 39px Nunito, system-ui, sans-serif"; g.textAlign = "center"; g.fillText(Math.ceil(falta), w / 2, h / 2); g.textAlign = "start"; } }
 }
 function salirJuego(silencioso) {
+  if (typeof previa !== "undefined") cortarPrevia();
   if (juego.activo) { juego.activo = false; pararSonido(); }
   try { juego.fuente && juego.fuente.disconnect(); } catch {} juego.fuente = null;
   if (!silencioso && !juego.terminado) ir(leccion.activa ? "hoy" : "jugar");
