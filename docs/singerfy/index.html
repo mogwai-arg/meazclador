@@ -275,7 +275,7 @@ details.panel > summary { font-size: 16px; }
   border-radius: var(--r-tarjeta); padding: 16px; cursor: pointer; transition: transform .12s ease-out; }
 .calent-card:active { transform: scale(.98); }
 .calent-card .ico { width: 56px; height: 56px; border-radius: var(--r-interno); background: rgba(243,239,220,.16); display: grid; place-items: center; font-size: 25px; }
-.calent-card b { display: block; font-size: 20px; font-weight: 900; } .calent-card .txt span { font-size: 13px; font-weight: 700; opacity: .85; }
+.calent-card b { display: block; font-size: 20px; font-weight: 900; line-height: 1.2; } .calent-card .txt span { font-size: 13px; font-weight: 700; opacity: .85; }
 .calent-card i { width: 48px; height: 48px; border-radius: 50%; background: var(--crema); color: var(--boton); display: grid; place-items: center; font-style: normal; font-size: 25px; font-weight: 900; }
 .temas-lista { display: grid; gap: 8px; }
 .tema-fila { display: grid; grid-template-columns: 64px 1fr auto; gap: 16px; align-items: center; padding: 8px; border-radius: var(--r-interno); cursor: pointer; border: 0; background: none; text-align: left; width: 100%; }
@@ -332,6 +332,39 @@ details.panel > summary { font-size: 16px; }
 .t-cambiar summary { justify-content: center; color: var(--crema); } .t-cambiar .fila { justify-content: center; margin-top: 8px; }
 .test-final { display: grid; gap: 16px; justify-items: center; }
 .btn-link { background: none; border: 0; color: var(--crema); text-decoration: underline; font-weight: 800; font-size: 16px; cursor: pointer; min-height: 44px; }
+/* ---- íconos y ajustes de texto */
+.icono { width: 1.2em; height: 1.2em; flex: none; vertical-align: -0.22em; }
+.btn .icono { width: 18px; height: 18px; vertical-align: 0; }
+.btn { white-space: nowrap; }
+.btn.ancho { width: 100%; }
+.btn.redondo .icono { width: 30px; height: 30px; } .btn.redondo.chico-r .icono { width: 18px; height: 18px; }
+.calent-card .ico .icono { width: 28px; height: 28px; } .calent-card i .icono { width: 22px; height: 22px; }
+.xp-chip { flex: none; font-size: 13px; font-weight: 900; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); border-radius: 999px; padding: 4px 12px; }
+.logro .medalla .icono { width: 26px; height: 26px; color: #3b2c00; } .logro.bloqueado .medalla .icono { color: var(--tinta-2); }
+.estrellas .icono { width: 1em; height: 1em; vertical-align: -0.12em; margin-right: .08em; } .estrellas .apagada { color: var(--grilla-do); }
+.trofeo .icono { width: 18px; height: 18px; color: #3b2c00; }
+.mejora .ic .icono { width: 20px; height: 20px; color: #170a4a; } .mejora i .icono { width: 16px; height: 16px; }
+.anillo-svg { position: relative; width: 64px; height: 64px; } .anillo-svg svg { width: 64px; height: 64px; }
+.anillo-ico { position: absolute; inset: 0; display: grid; place-items: center; } .anillo-ico .icono { width: 22px; height: 22px; }
+.racha .icono { color: var(--amarillo); }
+.nodo .icono { width: 26px; height: 26px; }
+.btn-previa .icono { width: 22px; height: 22px; }
+.importar { border: 2px dashed color-mix(in srgb, var(--boton) 60%, transparent); }
+.importar-cab { display: grid; grid-template-columns: 56px 1fr; gap: 16px; align-items: center; }
+.ico-grande { width: 56px; height: 56px; border-radius: var(--r-interno); background: var(--acento-suave); color: var(--acento); display: grid; place-items: center; }
+.ico-grande .icono { width: 30px; height: 30px; }
+.pasos-drive { margin: 0; padding-left: 24px; display: grid; gap: 8px; }
+.imp-lista { display: grid; gap: 4px; } .imp-lista:empty { display: none; }
+.imp-fila { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--linea); font-size: 15px; }
+.imp-fila b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; } .imp-fila span { flex: none; font-size: 13px; font-weight: 700; color: var(--tinta-2); }
+.imp-fila span.ok { color: var(--ok); } .imp-fila span.mal { color: var(--alto); }
+@media (max-width: 720px) {
+  .calent-card { grid-template-columns: 48px 1fr 40px; gap: 12px; }
+  .calent-card .ico { width: 48px; height: 48px; } .calent-card i { width: 40px; height: 40px; }
+  .calent-card b { font-size: 18px; white-space: nowrap; }
+  .btn.primario { letter-spacing: .05em; }
+  #v-hoy > .cabeza h1 { font-size: 39px; }
+}
 @media (max-width: 720px) {
   .barra { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--fondo); }   /* sin filtro: si no, la barra fija de abajo queda atada a la de arriba */
   .barra .fila { justify-content: space-between; }
@@ -376,17 +409,17 @@ details.panel > summary { font-size: 16px; }
       <h1>Hola, Javi</h1>
       <div class="fila" style="gap:8px"><div class="racha" id="racha" hidden></div><div class="racha" id="hoy-nivel">Nivel 1</div></div>
       <p class="sutil">Cada día una lección corta. Embocá notas, cantá tus temas y subí de nivel: la voz mejora sola.</p>
-      <button class="btn primario" id="hoy-test" hidden style="justify-self:start;position:relative;z-index:1">🎤 Conocé tu voz (1 min)</button>
+      <button class="btn primario" id="hoy-test" hidden style="justify-self:start;position:relative;z-index:1;margin-top:8px">{mic} Conocé tu voz</button>
     </div>
 
-    <button class="calent-card" id="calent-hoy"><span class="ico" aria-hidden="true">🔥</span><span class="txt"><b>Calentamiento diario</b><span>⏱ 3 min · +30 XP</span></span><i aria-hidden="true">›</i></button>
+    <button class="calent-card" id="calent-hoy"><span class="ico" aria-hidden="true">{flame}</span><span class="txt"><b>Calentamiento diario</b><span>{timer} 3 min · +30 XP</span></span><i aria-hidden="true">›</i></button>
 
     <div class="panel leccion-hoy" id="l-hoy">
-      <div class="etiqueta" id="l-hoy-unidad">Lección de hoy</div>
+      <div class="fila" style="justify-content:space-between;flex-wrap:nowrap"><div class="etiqueta" id="l-hoy-unidad">Lección de hoy</div><span class="xp-chip" id="l-hoy-xp">+60 XP</span></div>
       <h2 id="l-hoy-titulo">…</h2>
       <p class="sutil" id="l-hoy-desc"></p>
       <ol class="l-pasos" id="l-hoy-pasos"></ol>
-      <div class="fila"><button class="btn primario grande" id="l-hoy-btn">▶ Empezar la lección</button><span class="dato" id="l-hoy-xp">+60 XP</span></div>
+      <button class="btn primario grande ancho" id="l-hoy-btn">▶ Empezar la lección</button>
     </div>
 
     <div class="panel">
@@ -430,6 +463,18 @@ details.panel > summary { font-size: 16px; }
       <h1>Tus temas</h1>
       <p class="sutil">Practicá lo que vas a cantar de verdad, o cualquier canción que te sirva para aprender. El profe convierte la voz de la grabación en notas y te compara contra esa melodía.</p>
     </div>
+    <div class="panel importar">
+      <div class="importar-cab"><span class="ico-grande" aria-hidden="true">{cloud}</span><div><div class="etiqueta">Tus canciones</div><h2>Sumá tus MP3 desde Google Drive</h2></div></div>
+      <ol class="pasos-drive">
+        <li>Tocá <b>Elegir canciones</b>.</li>
+        <li>En el iPhone elegí <b>Explorar</b> y después <b>Google Drive</b>.</li>
+        <li>Entrá a tu carpeta, tocá <b>Seleccionar</b> y marcá todas las que quieras.</li>
+      </ol>
+      <button class="btn primario ancho" id="imp-btn">{folder} Elegir canciones</button>
+      <input type="file" id="imp-archivos" multiple accept="audio/*,.mp3,.m4a,.wav,.aac,.mid,.midi,.kar" class="oculto-archivo" aria-label="Elegir canciones">
+      <div class="imp-lista" id="imp-lista"></div>
+      <p class="sutil">Si Google Drive no aparece en «Explorar»: instalá la app de Google Drive, y en Explorar tocá los tres puntos y después «Editar» para activarlo. Singerfy saca la melodía de la voz de cada tema y lo guarda en este teléfono; anda mejor cuando la voz se escucha clara. También sirven archivos karaoke MIDI (.kar).</p>
+    </div>
     <div class="panel" id="lista-canciones-panel">
       <div class="temas-lista" id="lista-canciones"></div>
       <div class="vacio" id="canciones-vacio" hidden>
@@ -437,8 +482,8 @@ details.panel > summary { font-size: 16px; }
         <span class="sutil">Agregá la primera con la pista de voz de un multipista.</span>
       </div>
     </div>
-    <div class="panel">
-      <div><div class="etiqueta">Agregar</div><h2>Nueva canción</h2></div>
+    <details class="panel">
+      <summary>Agregar un tema con más opciones</summary>
       <div class="grilla-2">
         <label class="campo">Nombre del tema<input type="text" id="nueva-titulo" placeholder="Ej.: I Saw Her Standing There"></label>
         <label class="campo">¿Qué audio vas a subir?<select id="nueva-tipo">
@@ -454,7 +499,7 @@ details.panel > summary { font-size: 16px; }
       <div class="fila"><button class="btn primario" id="btn-nueva">Sacar la melodía y guardar</button></div>
       <div class="barra-prog" hidden id="nueva-prog"><div></div></div>
       <div class="estado" id="nueva-estado"></div>
-    </div>
+    </details>
   </section>
 
   <!-- ================= PRÁCTICA DE UNA CANCIÓN ================= -->
@@ -802,7 +847,7 @@ details.panel > summary { font-size: 16px; }
       <div class="estrellas grandes" id="j-final-estrellas"></div>
       <div class="anillos" id="j-anillos"></div>
       <div class="fila" style="justify-content:center;gap:16px"><span class="dato"><b id="j-final-puntos">0</b> puntos</span><span class="xp-ganado" id="j-final-xp">+0 XP</span></div>
-      <div class="xp-caja"><span id="j-xp-texto">0/150 XP</span><div class="xp-linea"><i id="j-xp-i"></i></div><span class="trofeo" aria-hidden="true">🏆</span></div>
+      <div class="xp-caja"><span id="j-xp-texto">0/150 XP</span><div class="xp-linea"><i id="j-xp-i"></i></div><span class="trofeo" aria-hidden="true">{trophy}</span></div>
       <div class="chips" id="j-final-chips" style="justify-content:center"></div>
       <div class="botones-redondos">
         <div><button class="btn redondo" id="j-otra" aria-label="Otra vez">↻</button><span>Otra vez</span></div>
@@ -1538,12 +1583,12 @@ function pintarObjetivos() {
   $("o-aire").textContent = perfil.aire && perfil.aire.mejor ? perfil.aire.mejor + " s" : "—";
   const uv = perfil.volumen && perfil.volumen.historial && perfil.volumen.historial.slice(-1)[0];
   $("o-vol").textContent = uv ? uv.rango + " pts" : "—";
-  const r = racha(); $("racha").hidden = r < 1; $("racha").textContent = `🔥 ${r} ${r === 1 ? "día" : "días seguidos"} calentando`;
+  const r = racha(); $("racha").hidden = r < 1; $("racha").textContent = `{flame} ${r} ${r === 1 ? "día" : "días seguidos"} calentando`;
   pintarPrimeros();
 }
 const estrellasDe = (p) => p >= 85 ? 3 : p >= 65 ? 2 : p >= 40 ? 1 : 0;
 function pintarEstrellas(el, p) {
-  const n = estrellasDe(p); el.textContent = "★".repeat(n); const ap = document.createElement("span"); ap.className = "apagada"; ap.textContent = "★".repeat(3 - n); el.append(ap);
+  const n = estrellasDe(p); el.textContent = "{star}".repeat(n); const ap = document.createElement("span"); ap.className = "apagada"; ap.textContent = "{star}".repeat(3 - n); el.append(ap);
   el.setAttribute("aria-label", n + " de 3 estrellas");
 }
 function racha() {   // días seguidos calentando, contando hoy o ayer
@@ -1639,7 +1684,7 @@ function filaTema(c, alTocar) {
   const nv = nivelTema(c), bd = document.createElement("span"); bd.className = "nivel-badge nv" + nv; bd.textContent = "NIVEL " + nv;
   const mejor = Math.max(-1, ...tomas.filter((x) => x.cancionId === c.id && x.puntaje != null).map((x) => x.puntaje));
   t.append(b, a, bd); if (mejor >= 0) { const e = document.createElement("span"); e.className = "estrellas"; e.style.cssText = "font-size:16px;margin-left:8px"; pintarEstrellas(e, mejor); t.append(e); }
-  const pv = document.createElement("button"); pv.className = "btn-previa"; pv.textContent = "🔊"; pv.setAttribute("aria-label", "Escuchar " + c.titulo);
+  const pv = document.createElement("button"); pv.className = "btn-previa"; pv.textContent = "{volume}"; pv.setAttribute("aria-label", "Escuchar " + c.titulo);
   pv.onclick = (ev) => { ev.stopPropagation(); escucharPrevia(c); };
   f.append(por, t, pv); f.onclick = alTocar; f.onkeydown = (ev) => { if (ev.key === "Enter") alTocar(); };
   return f;
@@ -2331,7 +2376,7 @@ async function ganarXP(cant, motivo) {
   perfil.dias = perfil.dias || [];
   if (!perfil.dias.includes(hoy)) { perfil.dias = [...perfil.dias, hoy].slice(-120); bonus = 10; }
   perfil.xp = (perfil.xp || 0) + cant + bonus;
-  toast(`+${cant} XP · ${motivo}`); if (bonus) setTimeout(() => toast(`🔥 +10 XP · primer canto del día`), 600);
+  toast(`+${cant} XP · ${motivo}`); if (bonus) setTimeout(() => toast(`{flame} +10 XP · primer canto del día`), 600);
   revisarLogros();
   try { await Guardado.guardar("perfil/javi", perfil); } catch {}
   pintarXP(); pintarObjetivos();
@@ -2339,24 +2384,24 @@ async function ganarXP(cant, motivo) {
   if (despues > antes) festejar("¡Subiste de nivel!", `Nivel ${despues}`, `Ahora sos «${nombreNivel(despues)}». Tu voz está creciendo: ¡seguí así!`);
 }
 const LOGROS = [
-  ["primera", "🎯", "Primera justa", "Embocá tu primera nota", () => (perfil.repetir && perfil.repetir.ok || 0) + stats().embocadas >= 1],
-  ["leccion1", "📗", "Primera lección", "Terminá una lección", () => stats().lecciones >= 1],
-  ["racha3", "🔥", "3 días seguidos", "Cantá 3 días seguidos", () => racha() >= 3],
-  ["racha7", "🔥", "Una semana", "7 días seguidos", () => racha() >= 7],
-  ["combo10", "⚡", "Combo ×10", "10 notas seguidas embocadas", () => stats().comboMax >= 10],
-  ["estrellas3", "⭐", "Tres estrellas", "3 estrellas en un tema", () => stats().tresEstrellas >= 1],
-  ["aire20", "🌬️", "Pulmón de acero", "Sostené una nota 20 segundos", () => (perfil.aire && perfil.aire.mejor || 0) >= 20],
-  ["volumen18", "📢", "Que se escuche", "Crecé 18 puntos de volumen", () => (perfil.volumen && perfil.volumen.mejor || 0) >= 18],
-  ["oido", "👂", "Buen oído", "50 aciertos en el juego de oído", () => Object.values(perfil.oido || {}).reduce((a, v) => a + (v[0] || 0), 0) >= 50],
-  ["leccion10", "📚", "Alumno aplicado", "10 lecciones", () => stats().lecciones >= 10],
-  ["combo25", "💥", "Imparable", "25 notas seguidas", () => stats().comboMax >= 25],
-  ["nivel5", "🎸", "Bar de Zona Oeste", "Llegá al nivel 5", () => nivelDe(perfil.xp || 0) >= 5],
-  ["racha30", "🏆", "Un mes entero", "30 días seguidos", () => racha() >= 30],
-  ["cavern", "🪩", "Rumbo al Cavern", "Llegá al nivel 9", () => nivelDe(perfil.xp || 0) >= 9],
+  ["primera", "{target}", "Primera justa", "Embocá tu primera nota", () => (perfil.repetir && perfil.repetir.ok || 0) + stats().embocadas >= 1],
+  ["leccion1", "{book}", "Primera lección", "Terminá una lección", () => stats().lecciones >= 1],
+  ["racha3", "{flame}", "3 días seguidos", "Cantá 3 días seguidos", () => racha() >= 3],
+  ["racha7", "{flame}", "Una semana", "7 días seguidos", () => racha() >= 7],
+  ["combo10", "{zap}", "Combo ×10", "10 notas seguidas embocadas", () => stats().comboMax >= 10],
+  ["estrellas3", "{star}", "Tres estrellas", "3 estrellas en un tema", () => stats().tresEstrellas >= 1],
+  ["aire20", "{wind}", "Pulmón de acero", "Sostené una nota 20 segundos", () => (perfil.aire && perfil.aire.mejor || 0) >= 20],
+  ["volumen18", "{megaphone}", "Que se escuche", "Crecé 18 puntos de volumen", () => (perfil.volumen && perfil.volumen.mejor || 0) >= 18],
+  ["oido", "{ear}", "Buen oído", "50 aciertos en el juego de oído", () => Object.values(perfil.oido || {}).reduce((a, v) => a + (v[0] || 0), 0) >= 50],
+  ["leccion10", "{layers}", "Alumno aplicado", "10 lecciones", () => stats().lecciones >= 10],
+  ["combo25", "{sparkle}", "Imparable", "25 notas seguidas", () => stats().comboMax >= 25],
+  ["nivel5", "{guitar}", "Bar de Zona Oeste", "Llegá al nivel 5", () => nivelDe(perfil.xp || 0) >= 5],
+  ["racha30", "{trophy}", "Un mes entero", "30 días seguidos", () => racha() >= 30],
+  ["cavern", "{disc}", "Rumbo al Cavern", "Llegá al nivel 9", () => nivelDe(perfil.xp || 0) >= 9],
 ];
 function revisarLogros() {
   perfil.logros = perfil.logros || {};
-  for (const [id, ico, nombre, , ok] of LOGROS) if (!perfil.logros[id] && ok()) { perfil.logros[id] = hoyISO(); setTimeout(() => toast(`🏅 Logro: ${nombre}`), 1200); }
+  for (const [id, ico, nombre, , ok] of LOGROS) if (!perfil.logros[id] && ok()) { perfil.logros[id] = hoyISO(); setTimeout(() => toast(`{award} Logro: ${nombre}`), 1200); }
   pintarLogros();
 }
 function pintarLogros() {
@@ -2433,7 +2478,7 @@ function textoPaso(p) {
 }
 function pintarLeccionHoy() {
   const l = proximaLeccion(), hechaHoy = Object.values(perfil.lecciones || {}).includes(hoyISO());
-  $("l-hoy-unidad").textContent = hechaHoy ? "¡Lección de hoy hecha! 🎉 Si querés, seguí" : `Lección de hoy · ${l.unidad}`;
+  $("l-hoy-unidad").textContent = hechaHoy ? "{sparkle} Lección de hoy hecha: si querés, seguí" : `Hoy · ${l.unidad}`;
   $("l-hoy-titulo").textContent = `${l.n}. ${l.titulo}`; $("l-hoy-desc").textContent = l.desc;
   const ol = $("l-hoy-pasos"); ol.textContent = "";
   l.pasos.forEach((p, i) => { const li = document.createElement("li"); li.dataset.n = i + 1; li.textContent = textoPaso(p); ol.append(li); });
@@ -2746,10 +2791,10 @@ async function terminarJuego() {
   const tiempoPct = conVoz.length ? Math.round(aTiempo / conVoz.length * 100) : 0;
   const lar = ns.filter((n) => n.finTot > 3), airePct = lar.length ? Math.round(lar.reduce((a, n) => a + n.finHit / n.finTot, 0) / lar.length * 100) : Math.round((1 - silencio) * 100);
   perfil.ultimos = perfil.ultimos || {}; const prev = perfil.ultimos[cfg.clave]; perfil.ultimos[cfg.clave] = { notas: pct, tiempo: tiempoPct, aire: airePct };
-  pintarAnillos([["🎵", "Notas", pct, "#9a7bff", prev && prev.notas], ["⏱", "Tiempo", tiempoPct, "#4aa8ff", prev && prev.tiempo], ["🌬", "Aire", airePct, "#ff8fb1", prev && prev.aire]]);
+  pintarAnillos([["music", "Notas", pct, "#9a7bff", prev && prev.notas], ["timer", "Tiempo", tiempoPct, "#4aa8ff", prev && prev.tiempo], ["wind", "Aire", airePct, "#ff8fb1", prev && prev.aire]]);
   chipsEn("j-final-chips", [[`${ok} de ${total} notas embocadas`, pct >= 65 ? "ok" : ""], [`Combo máximo: ${juego.comboMax}`], [mayus(textoTendencia(tendencia)), Math.abs(tendencia) < 15 ? "ok" : tendencia > 0 ? "alto" : "bajo"]]);
   pintarMejoras({ pct, tiempoPct, airePct, tendencia, silencio });
-  if (cfg.tipo === "tema" && est === 3 && !(perfil.dominados || {})[cfg.cancion.id]) { perfil.dominados = { ...(perfil.dominados || {}), [cfg.cancion.id]: hoyISO() }; festejar("¡Tema dominado!", "🏆 " + cfg.titulo, "Ya está entre tus temas dominados. ¡A buscar el próximo!"); }
+  if (cfg.tipo === "tema" && est === 3 && !(perfil.dominados || {})[cfg.cancion.id]) { perfil.dominados = { ...(perfil.dominados || {}), [cfg.cancion.id]: hoyISO() }; festejar("¡Tema dominado!", cfg.titulo, "Ya está entre tus temas dominados. ¡A buscar el próximo!"); }
   await adaptarVoz(cfg, ns);
   juego.resultado = { pct, ok, total, comboMax: juego.comboMax, tendencia, silencio, finales, puntos: juego.puntos, record, titulo: cfg.titulo, tipo: cfg.tipo, desde: cfg.desde, hasta: cfg.hasta,
     flojas: ns.filter((n) => n.estado === "mal" && n.cents.length > 3).slice(0, 8).map((n) => `${reloj(n.t)} ${Math.round(mediana(n.cents))} cents`) };
@@ -2770,27 +2815,27 @@ $("j-otra").onclick = () => abrirJuego(juego.cfg);
 function pintarAnillos(lista) {
   const box = $("j-anillos"); box.textContent = "";
   for (const [ico, nombre, v, color, previo] of lista) {
-    const d = document.createElement("div"); d.className = "anillo"; const r = 26, cir = 2 * Math.PI * r;
-    d.innerHTML = `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${r}" fill="none" stroke="rgba(243,239,220,.12)" stroke-width="6"/><circle cx="32" cy="32" r="${r}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(cir * v / 100).toFixed(1)} ${cir.toFixed(1)}" transform="rotate(-90 32 32)"/><text x="32" y="38" text-anchor="middle" font-size="18">${ico}</text></svg>`;
+    const d = document.createElement("div"); d.className = "anillo"; const r = 26, cir = 2 * Math.PI * r; const wrap = document.createElement("div"); wrap.className = "anillo-svg";
+    d.innerHTML = `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${r}" fill="none" stroke="rgba(243,239,220,.12)" stroke-width="6"/><circle cx="32" cy="32" r="${r}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(cir * v / 100).toFixed(1)} ${cir.toFixed(1)}" transform="rotate(-90 32 32)"/></svg><span class="anillo-ico">{${ico}}</span>`;
     const n = document.createElement("span"); n.textContent = nombre; const b = document.createElement("b"); b.textContent = v + "%";
     const sm = document.createElement("small"); if (previo != null && previo !== v) { sm.className = v > previo ? "sube" : "baja"; sm.textContent = (v > previo ? "↑ +" : "↓ ") + (v - previo) + "%"; } else sm.textContent = previo != null ? "=" : "";
-    d.append(n, b, sm); box.append(d);
+    wrap.innerHTML = d.innerHTML; d.textContent = ""; d.append(wrap, n, b, sm); box.append(d);
   }
 }
 function pintarMejoras(m) {
   const box = $("j-mejoras"); box.textContent = ""; const items = [];
-  if (m.pct < 75) items.push(["🎵", "#9a7bff", "Afiná más parejo", "Repetí la nota · 2 min", () => irPanel("t-oido")]);
-  if (m.tiempoPct < 75) items.push(["⏱", "#4aa8ff", "Entrá justo a tiempo", "Embocá la nota con escalitas · 2 min", () => document.querySelector('[data-juego="escalas"]').click()]);
-  if (m.airePct < 75 || m.silencio > 0.35) items.push(["🌬", "#ff8fb1", "Aire para las notas largas", "Test de aire · 2 min", () => irPanel("t-aire")]);
-  if (Math.abs(m.tendencia) >= 25 || items.length < 2) items.push(["🔥", "#ffd24a", "Abrí la voz", "Calentamiento guiado · 3 min", () => $("calent-hoy").click()]);
+  if (m.pct < 75) items.push(["music", "#9a7bff", "Afiná más parejo", "Repetí la nota · 2 min", () => irPanel("t-oido")]);
+  if (m.tiempoPct < 75) items.push(["timer", "#4aa8ff", "Entrá justo a tiempo", "Embocá la nota con escalitas · 2 min", () => document.querySelector('[data-juego="escalas"]').click()]);
+  if (m.airePct < 75 || m.silencio > 0.35) items.push(["wind", "#ff8fb1", "Aire para las notas largas", "Test de aire · 2 min", () => irPanel("t-aire")]);
+  if (Math.abs(m.tendencia) >= 25 || items.length < 2) items.push(["flame", "#ffd24a", "Abrí la voz", "Calentamiento guiado · 3 min", () => $("calent-hoy").click()]);
   for (const [ic, col, tit, sub, fn] of items.slice(0, 3)) {
     const b = document.createElement("button"); b.className = "mejora";
-    const i1 = document.createElement("span"); i1.className = "ic"; i1.style.background = col; i1.textContent = ic;
+    const i1 = document.createElement("span"); i1.className = "ic"; i1.style.background = col; i1.textContent = "{" + ic + "}";
     const t = document.createElement("span"); const bb = document.createElement("b"); bb.textContent = tit; const ss = document.createElement("span"); ss.innerHTML = "<em>+5 XP</em> · "; ss.append(sub); t.append(bb, ss);
     const fl = document.createElement("i"); fl.textContent = "›"; b.append(i1, t, fl); b.onclick = () => { ganarXP(5, tit.toLowerCase()); fn(); }; box.append(b);
   }
   const otra = document.createElement("button"); otra.className = "mejora";
-  otra.innerHTML = '<span class="ic" style="background:var(--boton)">🎤</span><span><b>¿Listo para notar la diferencia?</b><span><em>+10 XP</em> · cantalo otra vez</span></span><i>›</i>';
+  otra.innerHTML = '<span class="ic" style="background:var(--boton)">{mic}</span><span><b>¿Listo para notar la diferencia?</b><span><em>+10 XP</em> · cantalo otra vez</span></span><i>›</i>';
   otra.onclick = () => { juego.bonus = true; abrirJuego(juego.cfg); }; box.append(otra);
 }
 // La voz se va adaptando: si un tema te queda alto o bajo, se corre de tono; si embocás notas nuevas, tu registro crece.
@@ -2801,8 +2846,8 @@ async function adaptarVoz(cfg, ns) {
   let paso = 0; if (altas + 0.25 < bajas && tend < -10) paso = -1; else if (bajas + 0.25 < altas && tend > 10) paso = 1;
   let crecio = false; const okM = ns.filter((n) => n.estado === "ok").map((n) => n.m);
   if (okM.length && perfil.grave) { if (Math.max(...okM) > perfil.aguda) { perfil.aguda++; crecio = true; } if (Math.min(...okM) < perfil.grave) { perfil.grave--; crecio = true; } }
-  if (cfg.tipo === "tema" && paso) { perfil.tonos = { ...(perfil.tonos || {}), [cfg.cancion.id]: Math.max(-7, Math.min(7, cfg.trans + paso)) }; setTimeout(() => toast(paso < 0 ? "🎚️ Te bajé el tono de este tema: te quedaba alto" : "🎚️ Te subí el tono de este tema: te quedaba bajo"), 1500); }
-  if (crecio) setTimeout(() => toast("📈 ¡Tu registro creció!"), 2200);
+  if (cfg.tipo === "tema" && paso) { perfil.tonos = { ...(perfil.tonos || {}), [cfg.cancion.id]: Math.max(-7, Math.min(7, cfg.trans + paso)) }; setTimeout(() => toast(paso < 0 ? "{sliders} Te bajé el tono de este tema: te quedaba alto" : "{sliders} Te subí el tono de este tema: te quedaba bajo"), 1500); }
+  if (crecio) setTimeout(() => toast("{trending} ¡Tu registro creció!"), 2200);
   if (paso || crecio) try { await Guardado.guardar("perfil/javi", perfil); } catch {}
 }
 $("j-seguir").onclick = () => { const t = juego.cfg && juego.cfg.tipo === "tema" ? "tema" : "juego"; if (leccion.activa) eventoLeccion(t); else ir("jugar"); };
@@ -2845,6 +2890,100 @@ $("rec-btn").onclick = () => {
   window.open(SINGERFY_URL + "recordatorio-" + h + ".ics", "_blank");
   $("rec-estado").textContent = `Listo: tocá «Agregar» en el calendario. Todos los días a las ${h}:00 te va a avisar.`;
 };
+
+// ===================================================================== importar varias canciones (Drive, Archivos)
+$("imp-btn").onclick = () => { $("imp-archivos").value = ""; $("imp-archivos").click(); };
+$("imp-archivos").addEventListener("change", (ev) => { const fs = [...(ev.target.files || [])]; if (fs.length) importarArchivos(fs); });
+const tituloDeArchivo = (n) => n.replace(/\.[^.]+$/, "").replace(/^\s*\d{1,3}\s*[-._)]\s*/, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim() || "Tema";
+async function importarArchivos(fs) {
+  const box = $("imp-lista"); box.textContent = ""; $("imp-btn").disabled = true; let ok = 0;
+  const filas = fs.map((f) => { const d = document.createElement("div"); d.className = "imp-fila"; const t = document.createElement("b"); t.textContent = tituloDeArchivo(f.name); const e = document.createElement("span"); e.textContent = "En espera"; d.append(t, e); box.append(d); return e; });
+  for (let i = 0; i < fs.length; i++) {
+    const f = fs[i], est = filas[i], titulo = tituloDeArchivo(f.name);
+    const id = titulo.toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) + "-" + Date.now().toString(36);
+    try {
+      if (/\.(mid|midi|kar)$/i.test(f.name)) {
+        est.textContent = "Leyendo el MIDI…";
+        const midi = leerMidi(await f.arrayBuffer()), c = cancionDesdeMidi(midi, midi.partes[0].id);
+        if (c.notas.length < 10) throw new Error("pocas");
+        await Guardado.guardar("canciones/" + id, { titulo, origen: f.name, tipoAudio: "midi", creada: new Date().toISOString(), ...c });
+      } else {
+        let tipo = "mezcla", sen;
+        const avance = (base, peso, txt) => (x) => { est.textContent = txt + " " + Math.round((base + x * peso) * 100) + " %"; };
+        try { sen = await leerAudio(f, true, avance(0, 0.5, "Separando la voz…")); }
+        catch (e) { if (e && e.message === "mono") { tipo = "voz"; sen = await leerAudio(f, false); } else throw e; }
+        const m = await contorno(sen, avance(0.5, 0.5, "Sacando la melodía…")), notas = segmentar(m);
+        if (notas.length < 10) throw new Error("pocas");
+        await Guardado.guardar("canciones/" + id, { titulo, origen: f.name, tipoAudio: tipo, duracion: +(sen.x.length / sen.sr).toFixed(1), notas, contorno: resumirContorno(m).slice(0, 3000), letra: "", creada: new Date().toISOString() });
+        guardarAudioLocal(id, f);
+      }
+      est.innerHTML = ""; est.append("{check} Listo"); est.className = "ok"; ok++;
+    } catch (e) {
+      est.className = "mal"; est.textContent = e && e.message === "pocas" ? "Casi no encontré voz en este tema" : e && e.code === "quota_exceeded" ? "No hay más lugar en el teléfono" : "No pude leer este archivo";
+    }
+  }
+  $("imp-btn").disabled = false; await cargarCanciones();
+  if (ok) { toast(`{music} ${ok} ${ok === 1 ? "tema nuevo" : "temas nuevos"} para cantar`); ganarXP(5 * ok, "temas nuevos"); }
+}
+
+// ===================================================================== íconos planos (sin emojis)
+const ICONOS = {
+  mic: '<rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 10.5a7 7 0 0 0 14 0M12 17.5V21M8.5 21h7"/>',
+  flame: '<path d="M12 21.5c3.6 0 6-2.4 6-5.8 0-3.6-2.6-5.6-3.6-9.2-.4 2.3-1.6 3.6-2.8 4.4C11.2 8 9.8 5.4 10 2.5 6.9 4.9 6 9.2 6 11.8c0 .9.1 1.6.3 2.2-.2 0-.3 0-.3 1.7 0 3.4 2.4 5.8 6 5.8Z"/>',
+  timer: '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M18.5 7l1.5-1.5"/>',
+  volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18.3 6.3a8 8 0 0 1 0 11.4"/>',
+  trophy: '<path d="M7.5 4h9v5a4.5 4.5 0 0 1-9 0z"/><path d="M7.5 6H4.5a3 3 0 0 0 3 3.6M16.5 6h3a3 3 0 0 1-3 3.6M12 13.5V17M8.5 20.5h7M9.5 17h5v3.5h-5z"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  book: '<path d="M3 5.5c3-1 6-1 9 1 3-2 6-2 9-1v13c-3-1-6-1-9 1-3-2-6-2-9-1z"/><path d="M12 6.5v13"/>',
+  zap: '<path d="M13 2.5 4.5 13.5h6.5l-1 8 8.5-11h-6.5z"/>',
+  star: '<path d="m12 3 2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9l-5.4 2.9 1.1-6.1-4.5-4.3 6.1-.8z" fill="currentColor"/>',
+  wind: '<path d="M3 8.5h11a2.5 2.5 0 1 0-2.5-2.5M3 12.5h15a2.5 2.5 0 1 1-2.5 2.5M3 16.5h7"/>',
+  megaphone: '<path d="M3.5 10v4h3l9 4.5v-13l-9 4.5z"/><path d="M6.5 14l1.5 5.5h2.5L9.5 15M19 9.5a3.5 3.5 0 0 1 0 5"/>',
+  ear: '<path d="M7 9a5 5 0 0 1 10 0c0 3-2.5 3.8-3.3 5.6-.8 1.8-.9 4.4-3.7 4.4a3 3 0 0 1-3-3"/><path d="M10 9.5a2 2 0 0 1 4 0c0 1.2-1.2 1.6-1.6 2.6"/>',
+  layers: '<path d="m12 3 9 4.5-9 4.5-9-4.5z"/><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5"/>',
+  sparkle: '<path d="M12 3c.7 4.6 2.4 6.3 7 7-4.6.7-6.3 2.4-7 7-.7-4.6-2.4-6.3-7-7 4.6-.7 6.3-2.4 7-7Z" fill="currentColor"/><path d="M19 15.5c.3 1.7.9 2.3 2.5 2.5-1.6.3-2.2.9-2.5 2.5-.3-1.6-.9-2.2-2.5-2.5 1.6-.2 2.2-.8 2.5-2.5Z" fill="currentColor"/>',
+  guitar: '<path d="m20.5 3.5-6.8 6.8M18 3l3 3"/><path d="M13.4 10.6a3.7 3.7 0 0 0-5.3.4L6.6 12.5a2.8 2.8 0 0 0-1.9 1.1 3.8 3.8 0 0 0 5.7 5.7 2.8 2.8 0 0 0 1.1-1.9l1.5-1.5a3.7 3.7 0 0 0 .4-5.3z"/><circle cx="9.5" cy="14.5" r="1.3"/>',
+  disc: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3.5a8.5 8.5 0 0 1 8.5 8.5"/>',
+  music: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  sliders: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+  trending: '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  award: '<circle cx="12" cy="9" r="5.5"/><path d="m8.5 13.5-1.5 7.5 5-2.5 5 2.5-1.5-7.5"/>',
+  cloud: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-9 6 6 0 0 1 11.4 1.5 4 4 0 0 1-.8 7.5z"/><path d="M12 11v6M9.5 13.5 12 11l2.5 2.5"/>',
+  folder: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h5l2 2.5h8A1.5 1.5 0 0 1 21 9v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z"/><path d="M12 11v5M9.5 13.5h5"/>',
+  play: '<path d="M7 4.5v15l12-7.5z" fill="currentColor"/>',
+  pause: '<rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/>',
+  stop: '<rect x="5.5" y="5.5" width="13" height="13" rx="2" fill="currentColor"/>',
+  rec: '<circle cx="12" cy="12" r="6.5" fill="currentColor"/>',
+  prev: '<path d="M18 5v14L8 12z" fill="currentColor"/><path d="M6 5v14"/>',
+  next: '<path d="M6 5v14l10-7z" fill="currentColor"/><path d="M18 5v14"/>',
+  refresh: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4.5h4.5"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  check: '<path d="m4.5 12.5 5 5 10-11"/>',
+  chevron: '<path d="m9 5 7 7-7 7"/>',
+  circle: '<circle cx="12" cy="12" r="7"/>',
+};
+const GLIFOS = { "▶": "play", "■": "stop", "●": "rec", "⏮": "prev", "⏭": "next", "↻": "refresh", "✕": "x", "✗": "x", "✔": "check", "✓": "check", "♪": "music", "✦": "sparkle", "›": "chevron", "○": "circle", "⏱": "timer", "❚❚": "pause" };
+function svgIcono(n) {
+  const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("class", "icono icono-" + n); s.setAttribute("aria-hidden", "true");
+  s.setAttribute("fill", "none"); s.setAttribute("stroke", "currentColor"); s.setAttribute("stroke-width", "2"); s.setAttribute("stroke-linecap", "round"); s.setAttribute("stroke-linejoin", "round");
+  s.innerHTML = ICONOS[n]; return s;
+}
+const RX_ICONO = new RegExp("\\{(" + Object.keys(ICONOS).join("|") + ")\\}|❚❚|[" + Object.keys(GLIFOS).filter((g) => g.length === 1).join("") + "]", "g");
+function iconizar(raiz) {
+  const w = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT, { acceptNode: (n) => { const p = n.parentNode; if (!p || /^(SCRIPT|STYLE|TEXTAREA|OPTION|TITLE)$/.test(p.nodeName) || p.closest("svg")) return NodeFilter.FILTER_REJECT; RX_ICONO.lastIndex = 0; return RX_ICONO.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP; } });
+  const nodos = []; while (w.nextNode()) nodos.push(w.currentNode);
+  for (const n of nodos) {
+    const fr = document.createDocumentFragment(); let ult = 0, m; const t = n.nodeValue; RX_ICONO.lastIndex = 0;
+    while ((m = RX_ICONO.exec(t))) { if (m.index > ult) fr.append(t.slice(ult, m.index)); fr.append(svgIcono(m[1] || GLIFOS[m[0]])); ult = m.index + m[0].length; }
+    if (ult < t.length) fr.append(t.slice(ult)); n.replaceWith(fr);
+  }
+}
+// cualquier texto nuevo que traiga un ícono se convierte solo
+let iconizando = false;
+new MutationObserver((ms) => { if (iconizando) return; iconizando = true; try { for (const m of ms) { if (m.type === "characterData") { if (m.target.parentNode) iconizar(m.target.parentNode); } else for (const a of m.addedNodes) if (a.nodeType === 1) iconizar(a); else if (a.nodeType === 3 && a.parentNode) iconizar(a.parentNode); } } finally { iconizando = false; } })
+  .observe(document.body, { childList: true, subtree: true, characterData: true });
+iconizar(document.body);
 
 // ===================================================================== navegación y arranque
 const VISTAS = ["hoy", "jugar", "canciones", "practica", "juego", "yo"];
