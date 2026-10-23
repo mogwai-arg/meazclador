@@ -864,6 +864,7 @@ details.panel > summary { font-size: 16px; }
           <button class="paso-tema" id="j-escuchar"><span class="n" id="j-escuchar-n">1</span><span><b id="j-escuchar-t">Escuchala</b><small>Suena la pista con la melodía: cantá despacito encima.</small></span></button>
           <button class="paso-tema" id="j-mitono"><span class="n" id="j-mitono-n">2</span><span><b id="j-mitono-t">Encontrá tu tono</b><small id="j-mitono-s">Sólo si la cantás en otro tono que la grabación.</small></span></button>
         </div>
+        <label class="campo" id="j-parte-caja" hidden style="width:100%">Qué cantar<select id="j-parte"></select></label>
         <div class="hecho-para" id="j-tono-caja" hidden>
           <span>Hecho para tu voz: <b id="j-tipo">Tenor</b><br><small id="j-trans">tono original</small></span>
           <span class="fila" style="gap:8px"><button class="btn chico" id="j-tono-menos" aria-label="Más grave">− grave</button><button class="btn chico" id="j-tono-mas" aria-label="Más agudo">+ agudo</button></span>
@@ -1770,7 +1771,7 @@ function pintarParaVos() {
   [...canciones].filter((c) => c.notas && c.notas.length > 8).sort((a, b) => Math.abs(nivelTema(a) - meta) - Math.abs(nivelTema(b) - meta) || (b.catalogo ? 0 : 1) - (a.catalogo ? 0 : 1)).slice(0, 4)
     .forEach((c) => box.append(filaTema(c, () => cantarTema(c))));
 }
-function cantarTema(c) { pararSonido(); const cfg = configTema(c.id, 0, c.catalogo ? 90 : 26); if (cfg) abrirJuego(cfg); }
+function cantarTema(c) { pararSonido(); const cfg = configTema(c.id, "todo"); if (cfg) abrirJuego(cfg); }
 let midiCargado = null;
 $("nueva-tipo").addEventListener("change", () => {
   const midi = $("nueva-tipo").value === "midi";
@@ -2473,7 +2474,7 @@ async function preguntar() {
 
 
 // ===================================================================== Singerfy: XP, niveles, logros
-const VERSION_APP = "24 oct · tu tono y tus partes";
+const VERSION_APP = "24 oct · tema completo";
 const SINGERFY_URL = "https://mogwai-arg.github.io/meazclador/singerfy/";
 const hoyISO = (d = new Date()) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 const NIVELES = ["Cantante de ducha", "Garage", "Sala de ensayo", "Primer show", "Bar de Zona Oeste", "Strummer Bar", "Festival", "Teatro", "The Cavern", "Semana Beatle", "Abbey Road"];
@@ -2762,9 +2763,10 @@ function configTema(id, parte, largo = 22, semilla = 0) {
   const c = id ? canciones.find((x) => x.id === id) : canciones.filter((x) => x.notas && x.notas.length > 20)[semilla % Math.max(1, canciones.length)] || canciones[0];
   if (!c) return null;
   const ps = partesDe(c, largo); if (!ps.length) return null;
-  const [desde, hasta] = ps[parte != null ? Math.min(parte, ps.length - 1) : semilla % ps.length];
+  const u = c.notas[c.notas.length - 1];
+  const [desde, hasta] = parte === "todo" ? [Math.max(0, c.notas[0][0] - 0.6), u[0] + u[1] + 0.6] : ps[parte != null ? Math.min(parte, ps.length - 1) : semilla % ps.length];
   const L = (c.letra || "").split("\n").map((x) => x.trim()).filter(Boolean);
-  return { tipo: "tema", cancion: c, titulo: c.titulo, desc: `${c.autor ? c.autor + " · " : ""}de ${reloj(desde)} a ${reloj(hasta)}. Cantá cada nota cuando pasa por la línea amarilla.`, notas: c.notas, silabas: c.silabas || null,
+  return { tipo: "tema", parte, cancion: c, titulo: c.titulo, desc: `${c.autor ? c.autor + " · " : ""}${parte === "todo" ? "tema completo, " + reloj(hasta - desde) : "de " + reloj(desde) + " a " + reloj(hasta)}. Cantá cada nota cuando pasa por la línea amarilla.`, notas: c.notas, silabas: c.silabas || null,
     trans: tonoPara(c), desde, hasta, vel: 1, fondo: c.acompanamiento && c.acompanamiento.length ? "pista" : "piano", L, T: c.letraTiempos || null, clave: "tema-" + c.id + "-" + Math.round(desde) };
 }
 async function abrirJuego(cfg) {
@@ -2773,7 +2775,12 @@ async function abrirJuego(cfg) {
   $("j-puntos").textContent = "0"; $("j-combo").textContent = "×1"; const m = (perfil.mejores || {})[cfg.clave]; $("j-mejor").textContent = m != null ? m : "—";
   $("j-letra-a").textContent = ""; $("j-letra-s").textContent = "";
   prepararNotasJuego(); ir("juego"); requestAnimationFrame(() => dibujarJuego(cfg.desde - 1, NaN));
-  $("j-tono-caja").hidden = cfg.tipo !== "tema"; $("j-fondo-caja").hidden = cfg.tipo !== "tema"; pintarTonoJuego();
+  $("j-tono-caja").hidden = cfg.tipo !== "tema"; $("j-fondo-caja").hidden = cfg.tipo !== "tema"; $("j-parte-caja").hidden = cfg.tipo !== "tema"; pintarTonoJuego();
+  if (cfg.tipo === "tema") {
+    const sel = $("j-parte"); sel.textContent = ""; const o0 = document.createElement("option"); o0.value = "todo"; o0.textContent = "Tema completo"; sel.append(o0);
+    partesDe(cfg.cancion).forEach(([a, b], i) => { const o = document.createElement("option"); o.value = i; o.textContent = `Parte ${i + 1} (${reloj(a)} a ${reloj(b)})`; sel.append(o); });
+    sel.value = cfg.parte == null ? "0" : String(cfg.parte);
+  }
   $("j-pasos").hidden = cfg.tipo !== "tema"; $("j-preparar").hidden = cfg.tipo !== "tema"; $("j-empezar").innerHTML = ""; $("j-empezar").append(cfg.tipo === "tema" ? "▶ Jugar" : "▶ Empezar");
   for (const id of ["j-escuchar", "j-mitono"]) $(id).classList.remove("hecho", "activo");
   $("j-escuchar-n").textContent = "1"; $("j-mitono-n").textContent = "2"; $("j-escuchar-t").textContent = "Escuchala"; $("j-mitono-t").textContent = "Encontrá tu tono";
@@ -2806,6 +2813,7 @@ for (const [id, d] of [["j-tono-menos", -1], ["j-tono-mas", 1]]) $(id).onclick =
   prepararNotasJuego(); pintarTonoJuego(); dibujarJuego(cfg.desde - 1, NaN); tocarNota((juego.notas[0] || { m: 60 }).m, audio().currentTime + 0.05, 0.8);
 };
 $("j-fondo").onchange = () => { juego.cfg.fondo = $("j-fondo").value; };
+$("j-parte").onchange = () => { const v = $("j-parte").value, f = juego.cfg.fondo, cfg = configTema(juego.cfg.cancion.id, v === "todo" ? "todo" : +v); if (!cfg) return; abrirJuego(cfg).then(() => { if ([...$("j-fondo").options].some((o) => o.value === f)) { $("j-fondo").value = f; juego.cfg.fondo = f; } }); };
 // ---- antes de jugar un tema: escucharlo y encontrar tu tono
 const previa = { sonando: false, escuchando: false, timer: null, datos: [] };
 function cortarPrevia() { if (previa.sonando && !juego.activo && !juego.terminado) $("j-inicio").hidden = false; previa.sonando = false; previa.escuchando = false; clearTimeout(previa.timer); pararSonido(); try { previa.fuente && previa.fuente.disconnect(); } catch {} previa.fuente = null; $("j-escuchar").classList.remove("activo"); $("j-mitono").classList.remove("activo"); $("j-escuchar-t").textContent = "Escuchala"; $("j-mitono-t").textContent = "Encontrá tu tono"; }
@@ -3111,11 +3119,12 @@ function llenarElegirTema() {
 }
 function llenarPartes() {
   const c = canciones.find((x) => x.id === $("jt-tema").value), sel = $("jt-parte"); sel.textContent = ""; if (!c) return;
+  const t0 = document.createElement("option"); t0.value = "todo"; t0.textContent = "Tema completo"; sel.append(t0);
   partesDe(c).forEach(([a, b], i) => { const o = document.createElement("option"); o.value = i; o.textContent = `Parte ${i + 1} (${reloj(a)} a ${reloj(b)})`; sel.append(o); });
   $("jt-info").textContent = c.acompanamiento ? "Con pista karaoke: usá auriculares." : "Suena la melodía en piano para guiarte.";
 }
 $("jt-tema").onchange = llenarPartes;
-$("jt-jugar").onclick = () => { const cfg = configTema($("jt-tema").value, +$("jt-parte").value); if (cfg) abrirJuego(cfg); };
+$("jt-jugar").onclick = () => { const v = $("jt-parte").value; const cfg = configTema($("jt-tema").value, v === "todo" ? "todo" : +v); if (cfg) abrirJuego(cfg); };
 // recordatorio diario: archivo de calendario publicado junto a la app (el iPhone lo agrega con un toque)
 for (let h = 7; h <= 23; h++) { const o = document.createElement("option"); o.value = h; o.textContent = String(h).padStart(2, "0") + ":00"; if (h === 19) o.selected = true; $("rec-hora").append(o); }
 $("rec-btn").onclick = () => {
