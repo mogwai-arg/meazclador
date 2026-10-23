@@ -1448,7 +1448,7 @@ async function pedirMicrofono() {
 }
 const vivo = { activo: false, stream: null, nodo: null, datos: [], t0: 0, destino: null, boton: null };
 async function alternarVivo(destino, boton) {
-  if (vivo.activo) return terminarVivo();
+  if (vivo.activo) { if (vivo.destino === "repetir") repetir.auto = false; return terminarVivo(); }   // cortó a mano: no sigue solo
   const estado = estadoDe(destino);
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { estado.textContent = vivoNoDisponible; return; }
   let stream;
@@ -1470,6 +1470,7 @@ async function alternarVivo(destino, boton) {
     pararSonido(); tocarNota(repetir.objetivo, audio().currentTime + 0.05, 1.6);
     if ($("rep-fondo").checked) tocarNota(repetir.objetivo, audio().currentTime + 1.8, 40, 0.06);
     $("rep-flecha").textContent = "Escuchá… y cantala"; $("rep-flecha").className = "flecha";
+    Object.assign(vivo, { racha0: null, rachaCents: [], ultimaVoz: 0, escuchaDesde: audio().currentTime + 1.4 }); repetir.exitoCents = null;
   }
   vivo.t0 = arranque;
   const buf = new Float32Array(an.fftSize);
@@ -1484,8 +1485,20 @@ async function alternarVivo(destino, boton) {
     vivo.datos.push([t, mm, Math.sqrt(e / sen.x.length)]);
     const obj = isNaN(mm) ? null : objetivoEn(destino, t);
     if (destino === "repetir") {
-      if (obj != null && !isNaN(mm)) { const [txt, cls] = guia(mm, obj); $("rep-flecha").textContent = txt; $("rep-flecha").className = "flecha " + cls; }
-      estado.textContent = isNaN(mm) ? "Cantá la nota con 'aaa'. Te escucho…" : "Te escucho. Cuando termines, tocá Terminar.";
+      // Se da por buena cuando la sostenés justa 0,7 s seguidos: ahí corta sola.
+      const ahora = audio().currentTime;
+      if (ahora >= vivo.escuchaDesde && obj != null && !isNaN(mm)) {
+        let d = mm - obj; d -= 12 * Math.round(d / 12);
+        if (Math.abs(d) <= 0.4) { if (vivo.racha0 == null) { vivo.racha0 = ahora; vivo.rachaCents = []; } vivo.rachaCents.push(d * 100); vivo.ultimaVoz = ahora; }
+        else vivo.racha0 = null;
+      } else if (vivo.racha0 != null && ahora - vivo.ultimaVoz > 0.15) vivo.racha0 = null;
+      if (vivo.racha0 != null && ahora - vivo.racha0 >= 0.7) { repetir.exitoCents = Math.round(mediana(vivo.rachaCents)); repetir.auto = true; terminarVivo(); return; }
+      if (ahora - vivo.escuchaDesde > 12) { repetir.auto = false; terminarVivo(); return; }
+      if (obj != null && !isNaN(mm)) {
+        const [txt, cls] = vivo.racha0 != null ? ["{check} ¡Ahí! Sostenela…", "ok"] : guia(mm, obj);
+        $("rep-flecha").textContent = txt; $("rep-flecha").className = "flecha " + cls;
+      }
+      estado.textContent = isNaN(mm) ? "Cantá la nota con «aaa». Te escucho…" : "Cuando la sostengas justa, corta solo.";
     } else if (destino === "toma" || destino === "ejercicio") {
       const mostrar = ayudaVivo === "siempre" || (ayudaVivo === "ratos" && t % 8 < 3);
       estado.textContent = isNaN(mm) ? "Cantá. Te escucho…" : !mostrar ? "Te escucho… (sin ayuda ahora: el resultado te lo doy al final)" : obj == null ? "Te escucho…" : guia(mm, obj)[0];
@@ -2225,16 +2238,37 @@ $("rep-nueva").onclick = () => {
   $("rep-estado").textContent = "Escuchala y cantala con 'aaa' o 'uuu', 3 segundos. Grabate o usá En vivo.";
 };
 $("rep-otra").onclick = () => { if (repetir.objetivo == null) return $("rep-nueva").onclick(); pararSonido(); tocarNota(repetir.objetivo, audio().currentTime + 0.05, 1.6); };
+// Misma regla para el vivo y para las grabaciones: es justa si la sostuviste dentro del margen 0,6 s seguidos.
+function tramoSostenido(m, obj) {
+  const ok = Array.from(m, (x) => { if (isNaN(x)) return null; let d = x - obj; d -= 12 * Math.round(d / 12); return Math.abs(d) <= 0.4 ? d * 100 : null; });
+  const ven = 60; let mejor = null;
+  for (let i = 0; i + ven <= ok.length; i += 5) { const tr = ok.slice(i, i + ven).filter((x) => x != null); if (tr.length >= ven * 0.85) { mejor = Math.round(mediana(tr)); break; } }
+  return mejor;
+}
 async function analizarRepetir(m) {
   const est = $("rep-estado"), fl = $("rep-flecha");
   if (repetir.objetivo == null) { est.textContent = "Primero tocá Nueva nota."; return; }
-  const [a, b] = tramoMasLargo(m);
-  if ((b - a) * HOP < 0.6) { est.textContent = "No te escuché bien. Cantá la nota 2 o 3 segundos seguidos, cerca del celu."; return; }
-  const v = []; for (let i = Math.min(b - 1, a + 30); i < b; i++) if (!isNaN(m[i])) v.push(m[i]);   // salteamos el arranque
-  let d = mediana(v) - repetir.objetivo; d -= 12 * Math.round(d / 12); const c = Math.round(d * 100), bien = Math.abs(c) <= 50;
+  let c, bien;
+  if (repetir.exitoCents != null) { c = repetir.exitoCents; bien = true; repetir.exitoCents = null; }
+  else {
+    const sost = tramoSostenido(m, repetir.objetivo);
+    if (sost != null) { c = sost; bien = true; }
+    else {
+      const [a, b] = tramoMasLargo(m);
+      if ((b - a) * HOP < 0.5) { est.textContent = "No te escuché bien. Cantá la nota con «aaa», 2 o 3 segundos seguidos, cerca del celu."; return; }
+      const v = []; for (let i = Math.max(a, b - 150); i < b; i++) if (!isNaN(m[i])) v.push(m[i]);   // lo último que cantaste
+      let d = mediana(v) - repetir.objetivo; d -= 12 * Math.round(d / 12); c = Math.round(d * 100); bien = false;
+    }
+  }
+  const casi = !bien && Math.abs(c) <= 50;
   repetir.total++; if (bien) repetir.ok++;
-  fl.textContent = bien ? "✔ ¡Justo!" : c > 0 ? "↓ Te pasaste para arriba" : "↑ Te quedaste abajo"; fl.className = "flecha " + (bien ? "ok" : c > 0 ? "alto" : "bajo");
-  est.textContent = bien ? "Esa es la nota. Tocá Nueva nota para otra." : c > 0 ? `Te pasaste ${cuanto(c)}. Escuchala de nuevo y pensala un poquito más grave (más gruesa).` : `Te quedaste ${cuanto(c)} abajo. Escuchala de nuevo y pensala un poquito más aguda (más finita), como un escalón más arriba.`;
+  fl.textContent = bien ? "{check} ¡Justo!" : casi ? "Casi: la tocaste, sostenela" : c > 0 ? "↓ Te pasaste para arriba" : "↑ Te quedaste abajo"; fl.className = "flecha " + (bien ? "ok" : casi ? "" : c > 0 ? "alto" : "bajo");
+  est.textContent = bien ? (repetir.auto ? "¡Esa es la nota! Ahora va otra…" : "¡Esa es la nota! Tocá Nueva nota para otra.") : casi ? "Llegaste a la nota, pero se movió enseguida. Probá de nuevo y quedate ahí, quietito, un segundo." : c > 0 ? `Te pasaste ${cuanto(c)}. Escuchala de nuevo y pensala un poquito más grave (más gruesa).` : `Te quedaste ${cuanto(c)} abajo. Escuchala de nuevo y pensala un poquito más aguda (más finita), como un escalón más arriba.`;
+  if (bien) { try { const t0 = audio().currentTime + 0.05; tocarNota(repetir.objetivo + 12, t0, 0.12, 0.08); tocarNota(repetir.objetivo + 19, t0 + 0.1, 0.25, 0.08); } catch {} }
+  if (bien && repetir.auto) setTimeout(() => {   // sigue solo con otra nota mientras estés en este juego
+    if (vivo.activo || $("t-oido").hidden || $("v-jugar").hidden || !repetir.auto) return;
+    elegirNotaRepetir(); alternarVivo("repetir", document.querySelector('[data-vivo="repetir"]'));
+  }, 1800);
   $("rep-marcador").textContent = `${repetir.ok} / ${repetir.total} justas`;
   ganarXP(bien ? 5 : 1, bien ? "nota justa" : "intento"); eventoLeccion("repetir");
   perfil.repetir = perfil.repetir || { ok: 0, total: 0, historial: [] };
