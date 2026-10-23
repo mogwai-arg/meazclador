@@ -374,6 +374,8 @@ details.panel > summary { font-size: 16px; }
 #v-juego:has(#j-preparar:not([hidden])) .j-inicio p { display: none; }
 .aviso-version { position: fixed; left: 16px; right: 16px; top: calc(72px + env(safe-area-inset-top, 0px)); z-index: 22; max-width: 480px; margin: 0 auto; border: 0; border-radius: 999px; min-height: 48px;
   background: var(--amarillo); color: #1b0f4a; font: inherit; font-weight: 900; font-size: 15px; display: flex; gap: 8px; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.parte { display: grid; gap: 8px; background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-interno); padding: 12px; text-align: left; }
+.parte b { display: block; font-size: 15px; } .parte span { font-size: 13px; color: var(--tinta-2); }
 @media (max-width: 720px) {
   .calent-card { grid-template-columns: 48px 1fr 40px; gap: 12px; }
   .calent-card .ico { width: 48px; height: 48px; } .calent-card i { width: 40px; height: 40px; }
@@ -860,7 +862,7 @@ details.panel > summary { font-size: 16px; }
       <div><div class="etiqueta">Antes de jugar</div><h2>Preparate</h2></div>
         <div class="pasos-tema" id="j-pasos" hidden>
           <button class="paso-tema" id="j-escuchar"><span class="n" id="j-escuchar-n">1</span><span><b id="j-escuchar-t">Escuchala</b><small>Suena la pista con la melodía: cantá despacito encima.</small></span></button>
-          <button class="paso-tema" id="j-mitono"><span class="n" id="j-mitono-n">2</span><span><b id="j-mitono-t">Encontrá tu tono</b><small id="j-mitono-s">Cantá el comienzo sin música, como te salga.</small></span></button>
+          <button class="paso-tema" id="j-mitono"><span class="n" id="j-mitono-n">2</span><span><b id="j-mitono-t">Encontrá tu tono</b><small id="j-mitono-s">Sólo si la cantás en otro tono que la grabación.</small></span></button>
         </div>
         <div class="hecho-para" id="j-tono-caja" hidden>
           <span>Hecho para tu voz: <b id="j-tipo">Tenor</b><br><small id="j-trans">tono original</small></span>
@@ -880,6 +882,7 @@ details.panel > summary { font-size: 16px; }
         <div><button class="btn redondo" id="j-otra" aria-label="Otra vez">↻</button><span>Otra vez</span></div>
         <div><button class="btn redondo primario" id="j-seguir" aria-label="Seguir">›</button><span id="j-seguir-t">Seguir</span></div>
       </div>
+      <div class="mejoras" id="j-partes-caja" hidden><div class="etiqueta">Dónde trabajar</div><p class="sutil" style="margin:0" id="j-partes-intro">Las partes donde más te costó, de la peor a la mejor. Practicalas lento o nota por nota.</p><div id="j-partes"></div></div>
       <div class="mejoras"><div class="etiqueta">Mejoras según cómo cantaste</div><div id="j-mejoras"></div></div>
       <div class="profe" id="j-final-profe"></div>
       <div class="fila" style="justify-content:center"><button class="btn" id="j-ia">✦ Profe IA: devolución completa</button></div>
@@ -1714,6 +1717,10 @@ async function cargarCanciones() {
   }
   const viejo = canciones.find((c) => c.id === "multipista-1" && (!c.pistaBanda || /^Tema del multipista/.test(c.titulo || "")));   // ya sabemos qué tema es, y tiene la pista de la banda
   if (viejo) { Object.assign(viejo, { titulo: "I Should Have Known Better", autor: "The Beatles · versión Nyldos", audioUrl: "pistas/ishkb.mp3", pistaBanda: true }); try { await Guardado.guardar("canciones/multipista-1", stripId(viejo)); } catch {} }
+  if (!perfil.tonosLimpios) {   // los tonos que la app había corrido sola en tus temas vuelven al original
+    const cat = new Set(CATALOGO.map((c) => c.id)); perfil.tonos = Object.fromEntries(Object.entries(perfil.tonos || {}).filter(([k]) => cat.has(k)));
+    perfil.tonosLimpios = true; try { await Guardado.guardar("perfil/javi", perfil); } catch {}
+  }
   const ids = new Set(canciones.map((c) => c.id));
   canciones.sort((a, b) => (a.titulo || "").localeCompare(b.titulo || ""));
   for (const c of [...CATALOGO].sort((a, b) => a.nivel - b.nivel)) if (!ids.has(c.id)) canciones.push(c);
@@ -1846,7 +1853,8 @@ async function abrirPractica(id) {
   const conPista = !!(c.acompanamiento && c.acompanamiento.length); $("p-pista").hidden = !conPista; $("p-midi-op").hidden = !conPista; $("p-fondo").value = conPista ? "pista" : "piano";
   ir("practica"); leerControles();
 }
-function tonoPara(c) { const t = perfil.tonos && perfil.tonos[c.id]; return t != null ? t : sugerirTono(c.notas); }
+// Tus temas (sacados de tu voz o de la grabación) quedan en el tono en que los cantás; sólo los del catálogo se acomodan solos.
+function tonoPara(c) { const t = perfil.tonos && perfil.tonos[c.id]; return t != null ? t : c.catalogo ? sugerirTono(c.notas) : 0; }
 function sugerirTono(notas) {
   const reg = registro();
   const v = notas.map((x) => x[2]).sort((a, b) => a - b), lo = v[Math.floor(v.length * 0.05)], hi = v[Math.floor(v.length * 0.95)];
@@ -2263,6 +2271,8 @@ for (const id of ["r-momento", "r-largo", "r-voz"]) $(id).onchange = () => { $("
 // ===================================================================== repetí la nota (afinación básica)
 const repetir = { objetivo: null, ok: 0, total: 0 };
 function elegirNotaRepetir() {
+  if (repetir.cola && repetir.cola.length) { repetir.objetivo = repetir.cola.shift(); $("rep-marcador").textContent = `Nota ${repetir.colaTotal - repetir.cola.length} de ${repetir.colaTotal} de la parte`; return; }
+  repetir.cola = null;
   const r = registro(), c = notaComoda(), lo = Math.max(r.grave + 1, c - 4), hi = Math.max(lo, Math.min(r.aguda - 2, c + 5));
   let n; do { n = lo + Math.floor(Math.random() * (hi - lo + 1)); } while (n === repetir.objetivo && hi > lo);
   repetir.objetivo = n;
@@ -2463,7 +2473,7 @@ async function preguntar() {
 
 
 // ===================================================================== Singerfy: XP, niveles, logros
-const VERSION_APP = "24 oct · actualizable";
+const VERSION_APP = "24 oct · tu tono y tus partes";
 const SINGERFY_URL = "https://mogwai-arg.github.io/meazclador/singerfy/";
 const hoyISO = (d = new Date()) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 const NIVELES = ["Cantante de ducha", "Garage", "Sala de ensayo", "Primer show", "Bar de Zona Oeste", "Strummer Bar", "Festival", "Teatro", "The Cavern", "Semana Beatle", "Abbey Road"];
@@ -2767,7 +2777,7 @@ async function abrirJuego(cfg) {
   $("j-pasos").hidden = cfg.tipo !== "tema"; $("j-preparar").hidden = cfg.tipo !== "tema"; $("j-empezar").innerHTML = ""; $("j-empezar").append(cfg.tipo === "tema" ? "▶ Jugar" : "▶ Empezar");
   for (const id of ["j-escuchar", "j-mitono"]) $(id).classList.remove("hecho", "activo");
   $("j-escuchar-n").textContent = "1"; $("j-mitono-n").textContent = "2"; $("j-escuchar-t").textContent = "Escuchala"; $("j-mitono-t").textContent = "Encontrá tu tono";
-  if (cfg.tipo === "tema") { const L0 = cfg.L && cfg.L[0]; $("j-mitono-s").textContent = L0 ? `Cantá «${L0}» sin música, como te salga.` : "Cantá el comienzo sin música, como te salga."; if (perfil.tonos && perfil.tonos[cfg.cancion.id] != null) { $("j-mitono").classList.add("hecho"); $("j-mitono-n").textContent = "✓"; } }
+  if (cfg.tipo === "tema") { const L0 = cfg.L && cfg.L[0]; $("j-mitono-s").textContent = cfg.cancion.catalogo ? (L0 ? `Cantá «${L0}» sin música, como te salga.` : "Cantá el comienzo sin música, como te salga.") : "Opcional: sólo si la cantás en otro tono que la grabación."; if (perfil.tonos && perfil.tonos[cfg.cancion.id] != null) { $("j-mitono").classList.add("hecho"); $("j-mitono-n").textContent = "✓"; } }
   if (cfg.tipo === "tema") {
     cfg.blob = cfg.cancion.acompanamiento ? null : await leerAudioLocal(cfg.cancion.id);
     if (!cfg.blob && cfg.cancion.audioUrl) {   // la pista de la banda se baja una vez y queda en el teléfono
@@ -2981,13 +2991,14 @@ async function terminarJuego() {
   $("j-final-etq").textContent = record && antes != null ? "¡Nuevo récord!" : cfg.titulo;
   $("j-final-frase").textContent = ["¡A seguir practicando!", "¡Vas bien!", "¡Muy bien!", "¡Qué actuación!"][est];
   const conVoz = ns.filter((n) => n.hit > 0), aTiempo = conVoz.filter((n) => n.primera != null && n.primera - n.t <= 0.22).length;
-  const tiempoPct = conVoz.length ? Math.round(aTiempo / conVoz.length * 100) : 0;
+  const tiempoPct = conVoz.length ? Math.round(aTiempo / conVoz.length * 100) : null;   // sin notas embocadas no hay tiempo que medir
   const lar = ns.filter((n) => n.finTot > 3), airePct = lar.length ? Math.round(lar.reduce((a, n) => a + n.finHit / n.finTot, 0) / lar.length * 100) : Math.round((1 - silencio) * 100);
   perfil.ultimos = perfil.ultimos || {}; const prev = perfil.ultimos[cfg.clave]; perfil.ultimos[cfg.clave] = { notas: pct, tiempo: tiempoPct, aire: airePct };
   pintarAnillos([["music", "Notas", pct, "#9a7bff", prev && prev.notas], ["timer", "Tiempo", tiempoPct, "#4aa8ff", prev && prev.tiempo], ["wind", "Aire", airePct, "#ff8fb1", prev && prev.aire]]);
   chipsEn("j-final-chips", [[`${ok} de ${total} notas embocadas`, pct >= 65 ? "ok" : ""], [`Combo máximo: ${juego.comboMax}`], [mayus(textoTendencia(tendencia)), Math.abs(tendencia) < 15 ? "ok" : tendencia > 0 ? "alto" : "bajo"]]);
   pintarMejoras({ pct, tiempoPct, airePct, tendencia, silencio });
-  if (cfg.tipo === "tema" && est === 3 && !(perfil.dominados || {})[cfg.cancion.id]) { perfil.dominados = { ...(perfil.dominados || {}), [cfg.cancion.id]: hoyISO() }; festejar("¡Tema dominado!", cfg.titulo, "Ya está entre tus temas dominados. ¡A buscar el próximo!"); }
+  pintarPartes(cfg, ns);
+  if (cfg.tipo === "tema" && est === 3 && cfg.vel === 1 && !(perfil.dominados || {})[cfg.cancion.id]) { perfil.dominados = { ...(perfil.dominados || {}), [cfg.cancion.id]: hoyISO() }; festejar("¡Tema dominado!", cfg.titulo, "Ya está entre tus temas dominados. ¡A buscar el próximo!"); }
   await adaptarVoz(cfg, ns);
   juego.resultado = { pct, ok, total, comboMax: juego.comboMax, tendencia, silencio, finales, puntos: juego.puntos, record, titulo: cfg.titulo, tipo: cfg.tipo, desde: cfg.desde, hasta: cfg.hasta,
     flojas: ns.filter((n) => n.estado === "mal" && n.cents.length > 3).slice(0, 8).map((n) => `${reloj(n.t)} ${Math.round(mediana(n.cents))} cents`) };
@@ -3000,19 +3011,48 @@ async function terminarJuego() {
   await ganarXP(xp, record && antes != null ? "¡récord!" : "partida");
   const nv = nivelDe(perfil.xp || 0), a0 = xpPara(nv), a1 = xpPara(nv + 1);
   $("j-xp-texto").textContent = `${(perfil.xp || 0) - a0}/${a1 - a0} XP`; requestAnimationFrame(() => { $("j-xp-i").style.width = Math.round(((perfil.xp || 0) - a0) / (a1 - a0) * 100) + "%"; });
-  $("j-seguir-t").textContent = leccion.activa ? "Seguir la lección" : "Seguir";
+  $("j-seguir-t").textContent = cfg.base ? "Cantarla entera" : leccion.activa ? "Seguir la lección" : "Seguir";
   $("j-final").scrollIntoView({ behavior: "smooth", block: "end" });
   cargarTomas();
 }
 $("j-otra").onclick = () => abrirJuego(juego.cfg);
 function pintarAnillos(lista) {
   const box = $("j-anillos"); box.textContent = "";
-  for (const [ico, nombre, v, color, previo] of lista) {
-    const d = document.createElement("div"); d.className = "anillo"; const r = 26, cir = 2 * Math.PI * r; const wrap = document.createElement("div"); wrap.className = "anillo-svg";
+  for (let [ico, nombre, v, color, previo] of lista) {
+    const d = document.createElement("div"); d.className = "anillo"; const r = 26, cir = 2 * Math.PI * r; const vacio = v == null; v = v || 0; const wrap = document.createElement("div"); wrap.className = "anillo-svg";
     d.innerHTML = `<svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${r}" fill="none" stroke="rgba(243,239,220,.12)" stroke-width="6"/><circle cx="32" cy="32" r="${r}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(cir * v / 100).toFixed(1)} ${cir.toFixed(1)}" transform="rotate(-90 32 32)"/></svg><span class="anillo-ico">{${ico}}</span>`;
-    const n = document.createElement("span"); n.textContent = nombre; const b = document.createElement("b"); b.textContent = v + "%";
+    const n = document.createElement("span"); n.textContent = nombre; const b = document.createElement("b"); b.textContent = vacio ? "—" : v + "%";
     const sm = document.createElement("small"); if (previo != null && previo !== v) { sm.className = v > previo ? "sube" : "baja"; sm.textContent = (v > previo ? "↑ +" : "↓ ") + (v - previo) + "%"; } else sm.textContent = previo != null ? "=" : "";
     wrap.innerHTML = d.innerHTML; d.textContent = ""; d.append(wrap, n, b, sm); box.append(d);
+  }
+}
+// Frases: notas seguidas hasta un respiro (o 8 notas). Se muestran las que peor salieron, para practicarlas.
+function frasesDe(ns) {
+  const fr = []; let cur = [];
+  ns.forEach((n, i) => { cur.push(n); const sig = ns[i + 1]; if (!sig || sig.t - (n.t + n.d) > 0.5 || cur.length >= 8) { fr.push(cur); cur = []; } });
+  return fr.filter((f) => f.length >= 2);
+}
+function pintarPartes(cfg, ns) {
+  const box = $("j-partes"); box.textContent = "";
+  const fr = frasesDe(ns).map((f) => {
+    const ok = f.filter((n) => n.estado === "ok").length, cents = f.filter((n) => n.estado !== "ok").flatMap((n) => n.cents);   // cómo erraste las que no salieron
+    return { f, ok, pct: ok / f.length, t0: f[0].t, t1: f[f.length - 1].t + f[f.length - 1].d, tend: cents.length > 5 ? Math.round(mediana(cents)) : null, voz: f.reduce((a, n) => a + n.voz, 0) / Math.max(1, f.reduce((a, n) => a + n.tot, 0)) };
+  }).filter((x) => x.pct < 0.75).sort((a, b) => a.pct - b.pct).slice(0, 3);
+  $("j-partes-caja").hidden = !fr.length; if (!fr.length) return;
+  const L = cfg.L || [], T = cfg.T || [];
+  for (const x of fr) {
+    let li = -1; T.forEach((t, k) => { if (x.t0 >= t - 0.3) li = k; });
+    const letra = li >= 0 && L[li] ? `«${L[li]}» · ` : "";
+    const que = x.voz < 0.3 ? "casi no te escuché" : x.tend == null || Math.abs(x.tend) < 25 ? "se te movió la nota" : ladoTxt(x.tend);
+    const d = document.createElement("div"); d.className = "parte";
+    const t = document.createElement("div"); const b = document.createElement("b"); b.textContent = `${letra}${reloj(x.t0)} a ${reloj(x.t1)}`;
+    const sm = document.createElement("span"); sm.textContent = `${x.ok} de ${x.f.length} notas justas · ${que}`; t.append(b, sm);
+    const fila = document.createElement("div"); fila.className = "fila";
+    const lento = document.createElement("button"); lento.className = "btn chico primario"; lento.append("▶ Practicar lento");
+    lento.onclick = () => abrirJuego({ ...cfg, tipo: "parte", titulo: `${cfg.titulo} (parte)`, desc: "Más lento y con el piano marcando la melodía. Cuando te salga, volvé a cantarla entera.", desde: Math.max(0, x.t0 - 0.6), hasta: x.t1 + 0.4, vel: 0.75, fondo: "piano", clave: cfg.clave + "-p" + Math.round(x.t0), base: cfg.base || cfg });
+    const nota = document.createElement("button"); nota.className = "btn chico"; nota.append("Nota por nota");
+    nota.onclick = () => { repetir.cola = x.f.map((n) => n.m); repetir.colaTotal = repetir.cola.length; repetir.objetivo = null; irPanel("t-oido"); $("rep-estado").textContent = `Vamos con las ${repetir.colaTotal} notas de esa parte, una por una. Tocá «En vivo».`; };
+    fila.append(lento, nota); d.append(t, fila); box.append(d);
   }
 }
 function pintarMejoras(m) {
@@ -3039,11 +3079,11 @@ async function adaptarVoz(cfg, ns) {
   let paso = 0; if (altas + 0.25 < bajas && tend < -10) paso = -1; else if (bajas + 0.25 < altas && tend > 10) paso = 1;
   let crecio = false; const okM = ns.filter((n) => n.estado === "ok").map((n) => n.m);
   if (okM.length && perfil.grave) { if (Math.max(...okM) > perfil.aguda) { perfil.aguda++; crecio = true; } if (Math.min(...okM) < perfil.grave) { perfil.grave--; crecio = true; } }
-  if (cfg.tipo === "tema" && paso) { perfil.tonos = { ...(perfil.tonos || {}), [cfg.cancion.id]: Math.max(-7, Math.min(7, cfg.trans + paso)) }; setTimeout(() => toast(paso < 0 ? "{sliders} Te bajé el tono de este tema: te quedaba alto" : "{sliders} Te subí el tono de este tema: te quedaba bajo"), 1500); }
+  paso = 0;   // el tono no se cambia solo: lo decidís vos (con «Encontrá tu tono» o − grave / + agudo)
   if (crecio) setTimeout(() => toast("{trending} ¡Tu registro creció!"), 2200);
   if (paso || crecio) try { await Guardado.guardar("perfil/javi", perfil); } catch {}
 }
-$("j-seguir").onclick = () => { const t = juego.cfg && juego.cfg.tipo === "tema" ? "tema" : "juego"; if (leccion.activa) eventoLeccion(t); else ir("jugar"); };
+$("j-seguir").onclick = () => { if (juego.cfg && juego.cfg.base) return abrirJuego(juego.cfg.base); const t = juego.cfg && juego.cfg.tipo === "tema" ? "tema" : "juego"; if (leccion.activa) eventoLeccion(t); else ir("jugar"); };
 $("j-ia").onclick = async () => {
   const r = juego.resultado; if (!r) return;
   const prompt = `${CONTEXTO}\n\nJavi acaba de jugar a "Embocá la nota" en Singerfy (${r.tipo === "tema" ? `con el tema "${r.titulo}", de ${reloj(r.desde)} a ${reloj(r.hasta)}` : `con el ejercicio "${r.titulo}"`}).\nResultados medidos: ${r.ok} de ${r.total} notas embocadas (${r.pct} %), ${r.puntos} puntos, combo máximo ${r.comboMax}, tendencia ${r.tendencia} cents (positivo = se pasa para arriba), ${Math.round(r.silencio * 100)} % del tiempo sin voz detectada, finales de nota que se caen en ${Math.round(r.finales * 100)} % de las notas largas. Notas que no embocó: ${r.flojas.join("; ") || "ninguna"}.\n\nContexto de su práctica:\n${resumenParaProfe()}\n\nEscribí la devolución en 120 a 170 palabras, sin títulos ni markdown, con onda de profe de rock: 1) qué salió bien, con un dato; 2) lo más importante para mejorar; 3) un ejercicio concreto de Singerfy para eso (Repetí la nota, Rutina guiada, Juego de oído, o Embocá la nota con: Hablar en una nota, Zumbido, Escalerita de 5 escalones, Sirena de ambulancia, Saltos grandes, Saltitos para coros, Escala de los riffs del rock, Golpes ¡hey!); 4) una frase para motivarlo a la próxima partida. Nada de lenguaje técnico ni nombres de notas.`;
@@ -3118,6 +3158,23 @@ async function importarArchivos(fs) {
   $("imp-btn").disabled = false; await cargarCanciones();
   if (ok) { toast(`{music} ${ok} ${ok === 1 ? "tema nuevo" : "temas nuevos"} para cantar`); ganarXP(5 * ok, "temas nuevos"); }
 }
+
+// ===================================================================== pantalla encendida mientras cantás
+const despierto = { lock: null, pedidos: 0 };
+async function mantenerPantalla(si) {
+  despierto.pedidos = Math.max(0, despierto.pedidos + (si ? 1 : -1));
+  try {
+    if (despierto.pedidos > 0 && !despierto.lock && navigator.wakeLock) { despierto.lock = await navigator.wakeLock.request("screen"); despierto.lock.addEventListener("release", () => { despierto.lock = null; }); }
+    if (despierto.pedidos === 0 && despierto.lock) { await despierto.lock.release(); despierto.lock = null; }
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && despierto.pedidos > 0 && !despierto.lock) { despierto.pedidos--; mantenerPantalla(true); } });
+// mientras haya algo escuchando o sonando, la pantalla queda prendida
+setInterval(() => {
+  const ocupado = juego.activo || rutina.corriendo || vivo.activo || test.activo || previa.escuchando || previa.sonando;
+  if (ocupado && despierto.pedidos === 0) mantenerPantalla(true);
+  if (!ocupado && despierto.pedidos > 0) { despierto.pedidos = 1; mantenerPantalla(false); }
+}, 1000);
 
 // ===================================================================== íconos planos (sin emojis)
 const ICONOS = {
