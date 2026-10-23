@@ -358,6 +358,9 @@ details.panel > summary { font-size: 16px; }
 .imp-fila { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--linea); font-size: 15px; }
 .imp-fila b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; } .imp-fila span { flex: none; font-size: 13px; font-weight: 700; color: var(--tinta-2); }
 .imp-fila span.ok { color: var(--ok); } .imp-fila span.mal { color: var(--alto); }
+.reloj-grande { font-size: 39px; font-weight: 900; color: var(--amarillo); line-height: 1.1; font-variant-numeric: tabular-nums; min-height: 44px; }
+.r-oido { font-size: 15px; font-weight: 800; color: var(--ok); min-height: 22px; }
+.aviso-sonido { font-size: 13px; font-weight: 700; color: var(--tinta-2); background: var(--panel-2); border-radius: var(--r-chico); padding: 8px 12px; margin: 0; }
 @media (max-width: 720px) {
   .calent-card { grid-template-columns: 48px 1fr 40px; gap: 12px; }
   .calent-card .ico { width: 48px; height: 48px; } .calent-card i { width: 40px; height: 40px; }
@@ -602,6 +605,7 @@ details.panel > summary { font-size: 16px; }
     </div>
     <div class="panel" id="t-rutina" hidden>
       <div><div class="etiqueta">Empezá por acá</div><h2>Rutina guiada</h2></div>
+      <p class="aviso-sonido">{volume} ¿No suena? Sacá el modo silencio del iPhone (la tecla del costado) y subí el volumen.</p>
       <p class="sutil">Como un jugador antes del partido: arranca de a poco (cuerpo, aire, voz hablada, zumbidos) y recién al final llega a lo más exigente. Pasa sola de un ejercicio al siguiente; podés pausar, volver o saltear. En cada uno escuchás primero cómo va y después lo cantás vos.</p>
       <div class="grilla-2">
         <label class="campo">¿Cuándo?<select id="r-momento"><option value="antes">Antes de cantar (calentar)</option><option value="despues">Después de ensayar (enfriar)</option></select></label>
@@ -613,7 +617,9 @@ details.panel > summary { font-size: 16px; }
         <h3 id="r-titulo">Rutina de calentamiento</h3>
         <div class="silaba" id="r-silaba"></div>
         <p id="r-texto" style="margin:0">Tocá Empezar. Volumen de charla: calentar no es cantar fuerte.</p>
-        <div class="dato" id="r-reloj"></div>
+        <div class="reloj-grande" id="r-reloj"></div>
+        <div class="barra-prog" id="r-prog"><div></div></div>
+        <div class="r-oido" id="r-oido"></div>
       </div>
       <div class="pianola" id="r-pianola" hidden style="height:180px"><canvas id="r-canvas"></canvas></div>
       <div class="fila">
@@ -959,6 +965,14 @@ const Guardado = {
 
 // ===================================================================== audio
 let ctxAudio = null;
+// En el iPhone el sonido arranca recién con un toque, y en modo silencio Safari calla todo salvo que la página pida «reproducir».
+let audioListo = false;
+function desbloquearAudio() {
+  try { if (navigator.audioSession && !microfono) navigator.audioSession.type = "playback"; } catch {}
+  try { const c = audio(), b = c.createBuffer(1, 1, 22050), s = c.createBufferSource(); s.buffer = b; s.connect(c.destination); s.start(0); } catch {}
+  if (!audioListo) { audioListo = true; try { const a = new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA="); a.setAttribute("playsinline", ""); a.play().catch(() => {}); } catch {} }
+}
+for (const ev of ["pointerdown", "touchend", "click", "keydown"]) document.addEventListener(ev, desbloquearAudio, { capture: true, passive: true });
 const audio = () => { if (!ctxAudio) ctxAudio = new (window.AudioContext || window.webkitAudioContext)(); if (ctxAudio.state === "suspended") ctxAudio.resume(); return ctxAudio; };
 function decodificar(buf) {
   return new Promise((ok, mal) => {
@@ -1428,6 +1442,7 @@ function guia(mm, obj) {   // flecha simple: ignora si cantás una octava arriba
 let microfono = null;
 async function pedirMicrofono() {
   if (microfono && microfono.getAudioTracks().some((t) => t.readyState === "live")) return microfono;
+  try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch {}
   microfono = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   return microfono;
 }
@@ -2056,8 +2071,8 @@ $("btn-respira").onclick = async () => {
 // ===================================================================== rutina guiada (de a poco: cuerpo, aire, voz hablada, zumbidos, vocales cerradas y recién al final lo exigente)
 const RUTINA = {
   antes: [
-    { titulo: "Cuerpo y postura", seg: 30, en: "corta", texto: "Parate con los pies separados al ancho de los hombros y las rodillas sueltas. Hacé cinco círculos con los hombros para atrás y dejá caer los brazos. Mové la mandíbula suave, como masticando chicle, y bostezá una o dos veces." },
-    { titulo: "Aire sin voz", silaba: "sssss", seg: 25, en: "corta", texto: "Mano en la panza. Tomá aire por la nariz inflando la panza, sin subir los hombros, y soltalo despacio con una 's' finita y pareja. Repetí hasta que termine el reloj." },
+    { titulo: "Cuerpo y postura", seg: 20, en: "corta", texto: "Parate con los pies separados al ancho de los hombros y las rodillas sueltas. Hacé cinco círculos con los hombros para atrás y dejá caer los brazos. Mové la mandíbula suave, como masticando chicle, y bostezá una o dos veces." },
+    { titulo: "Aire sin voz", silaba: "sssss", seg: 20, en: "corta", texto: "Mano en la panza. Tomá aire por la nariz inflando la panza, sin subir los hombros, y soltalo despacio con una 's' finita y pareja. Repetí hasta que termine el reloj." },
     { titulo: "Hablar en una nota", ej: "hablada", bpm: 80, dir: "sube", reps: 3, en: "normal" },
     { titulo: "Zumbido", ej: "zumbido", bpm: 80, dir: "baja", en: "corta" },
     { titulo: "Motorcito con los labios", ej: "cinco", silaba: "brrr", bpm: 90, dir: "sube", en: "corta", texto: "Labios flojos vibrando como un motorcito: 'brrr'. Si no te sale, hacelo con 'vvv'. Volumen de charla." },
@@ -2089,7 +2104,7 @@ function armarRutina() {
   const min = Math.max(1, Math.round(rutina.pasos.reduce((a, p) => a + p.seg + ($("r-voz").checked ? 8 : 0), 0) / 60));
   $("r-num").textContent = `${rutina.pasos.length} pasos · unos ${min} minutos`;
   $("r-titulo").textContent = $("r-momento").value === "antes" ? "Rutina de calentamiento" : "Rutina para enfriar";
-  $("r-silaba").textContent = ""; $("r-texto").textContent = "Tocá Empezar. Volumen de charla: calentar no es cantar fuerte."; $("r-reloj").textContent = ""; $("r-pianola").hidden = true;
+  $("r-silaba").textContent = ""; $("r-texto").textContent = "Tocá Empezar. Volumen de charla: calentar no es cantar fuerte."; $("r-reloj").textContent = ""; $("r-oido").textContent = ""; $("r-prog").firstElementChild.style.width = "0"; $("r-pianola").hidden = true;
   $("r-play").textContent = "▶ Empezar";
   const ol = $("r-lista"); ol.textContent = "";
   for (const p of rutina.pasos) { const li = document.createElement("li"); li.textContent = p.titulo; ol.append(li); }
@@ -2101,7 +2116,34 @@ function mostrarPasoRutina(i) {
   $("r-pianola").hidden = !p.notas; if (p.notas) requestAnimationFrame(() => dibujarRutina(null));
   [...$("r-lista").children].forEach((li, k) => { li.className = k === i ? "actual" : k < i ? "hecho" : ""; });
 }
-function dibujarRutina(t) { const p = rutina.pasos[rutina.i]; if (p && p.notas) dibujarPianola($("r-canvas"), { notas: p.notas, desde: 0, hasta: p.fin, cursorT: t }); }
+function dibujarRutina(t) { const p = rutina.pasos[rutina.i]; if (p && p.notas) dibujarPianola($("r-canvas"), { notas: p.notas, desde: 0, hasta: p.fin, cursorT: t, toma: rutina.rastro && rutina.rastro.length ? rutina.rastro : null }); }
+function detectarVoz(an, buf) {
+  const c = audio(); an.getFloatTimeDomainData(buf);
+  const sen = diezmar(buf, c.sampleRate), win = sen.x.length - Math.floor(sen.sr / 70) - 1; let e = 0; for (const v of sen.x) e += v * v;
+  if (Math.sqrt(e / sen.x.length) > 0.01 && win > 50) { const r = yin(sen.x, 0, win, sen.sr); if (r.f0 > 70 && r.f0 < 1000) return 69 + 12 * Math.log2(r.f0 / 440); }
+  return NaN;
+}
+async function abrirMicRutina() {
+  if (rutina.an) return true;
+  try { if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false; const st = await pedirMicrofono(), c = audio(); rutina.fuente = c.createMediaStreamSource(st); rutina.an = c.createAnalyser(); rutina.an.fftSize = 2048; rutina.fuente.connect(rutina.an); rutina.buf = new Float32Array(2048); return true; }
+  catch { return false; }
+}
+function cerrarMicRutina() { try { rutina.fuente && rutina.fuente.disconnect(); } catch {} rutina.fuente = null; rutina.an = null; }
+function escucharPaso(p, arranque, tok) {
+  const hits = p.notas.map(() => [0, 0]); rutina.rastro = [];
+  const cuadro = () => {
+    if (tok !== rutina.token || !rutina.an) return;
+    const t = audio().currentTime - arranque, te = t - 0.12, mm = detectarVoz(rutina.an, rutina.buf);
+    const k = p.notas.findIndex((n) => te >= n[0] && te < n[0] + n[1]);
+    if (k >= 0) { hits[k][1]++; if (!isNaN(mm)) { let d = mm - p.notas[k][2]; d -= 12 * Math.round(d / 12); if (Math.abs(d) <= 0.5) hits[k][0]++; } }
+    if (!isNaN(mm) && t > 0) { const ref = k >= 0 ? p.notas[k][2] : (p.notas.find((n) => n[0] > t) || p.notas[p.notas.length - 1])[2]; rutina.rastro.push([t, plegar(mm, ref)]); }
+    const justas = hits.filter(([h, tot]) => tot > 3 && h / tot >= 0.4).length;
+    p.justas = justas; p.total = hits.filter(([, tot]) => tot > 3).length;
+    $("r-oido").textContent = t < 0 ? "Preparate…" : isNaN(mm) ? (justas ? `{check} ${justas} notas justas · cantá encima del piano` : "Cantá encima del piano, te escucho") : `{mic} Te escucho · ${justas} notas justas`;
+    requestAnimationFrame(cuadro);
+  };
+  requestAnimationFrame(cuadro);
+}
 const esperarRutina = (seg, tok, alTic) => new Promise((res) => {
   const fin = performance.now() + seg * 1000;
   const f = () => { if (tok !== rutina.token) return res(false); const q = (fin - performance.now()) / 1000; alTic(q); if (q <= 0) return res(true); setTimeout(f, 200); };
@@ -2122,17 +2164,28 @@ function decir(txt, tok) {
 }
 async function correrRutina(desde) {
   const tok = ++rutina.token; rutina.corriendo = true; $("r-play").textContent = "❚❚ Pausa";
+  desbloquearAudio(); marcarCalentamiento();
+  const conMic = await abrirMicRutina(); if (tok !== rutina.token) return;
+  $("r-oido").textContent = conMic ? "" : "Sin micrófono en vivo: cantá igual, pero no puedo medirte.";
   for (let i = desde; i < rutina.pasos.length; i++) {
-    rutina.i = i; const p = rutina.pasos[i]; mostrarPasoRutina(i);
+    rutina.i = i; const p = rutina.pasos[i]; mostrarPasoRutina(i); rutina.rastro = [];
+    try { const c = audio(), r0 = notaComoda() + 12; tocarNota(r0, c.currentTime + 0.02, 0.18, 0.09); tocarNota(r0 + 7, c.currentTime + 0.16, 0.3, 0.09); } catch {}
     await decir(p.titulo + ". " + p.texto, tok); if (tok !== rutina.token) return;
     if (p.notas) {
       if (!rutina.marcado) { rutina.marcado = true; marcarCalentamiento(); }
-      tocarMelodia(p.notas, { vel: 1 }, dibujarRutina);
+      const arr = tocarMelodia(p.notas, { vel: 1 }, dibujarRutina);
+      if (conMic) escucharPaso(p, arr, tok);
+      setTimeout(() => { if (audio().state !== "running") toast("{volume} Tocá la pantalla para activar el sonido"); }, 1200);
     }
-    const ok = await esperarRutina(p.seg, tok, (q) => { $("r-reloj").textContent = q > 0 ? (p.notas ? "Termina en " : "") + Math.ceil(q) + " s" : ""; });
+    const ok = await esperarRutina(p.seg, tok, (q) => { $("r-reloj").textContent = q > 0 ? Math.ceil(q) + " s" : ""; $("r-prog").firstElementChild.style.width = Math.min(100, (1 - Math.max(0, q) / p.seg) * 100) + "%"; });
     if (!ok) return;
   }
-  rutina.corriendo = false; pararSonido();
+  rutina.corriendo = false; pararSonido(); cerrarMicRutina();
+  const conNotas = rutina.pasos.filter((x) => x.total), justas = conNotas.reduce((a, x) => a + x.justas, 0), total = conNotas.reduce((a, x) => a + x.total, 0);
+  if (total) {
+    const pct = Math.round(justas / total * 100); $("r-oido").textContent = `{check} Cantaste ${justas} de ${total} notas justas (${pct} %)`;
+    try { await Guardado.guardar("tomas/" + Date.now().toString(36), { tipo: "calentamiento", titulo: "Calentamiento", fecha: new Date().toISOString(), puntaje: pct, tendencia: 0, flojos: [] }); cargarTomas(); } catch {}
+  }
   [...$("r-lista").children].forEach((li) => (li.className = "hecho"));
   $("r-num").textContent = "¡Terminaste!"; $("r-titulo").textContent = "¡Bien ahí!"; $("r-silaba").textContent = ""; $("r-pianola").hidden = true; $("r-reloj").textContent = "";
   $("r-texto").textContent = $("r-momento").value === "antes" ? "La voz ya está lista para cantar. Ahora a los temas." : "Voz descansada. Agua y poco hablar.";
@@ -2142,7 +2195,7 @@ async function correrRutina(desde) {
 }
 function pausarRutina() {
   if (!rutina.corriendo) return;
-  rutina.token++; rutina.corriendo = false; pararSonido(); try { window.speechSynthesis && speechSynthesis.cancel(); } catch {}
+  rutina.token++; rutina.corriendo = false; pararSonido(); cerrarMicRutina(); try { window.speechSynthesis && speechSynthesis.cancel(); } catch {}
   $("r-play").textContent = "▶ Seguir";
 }
 $("r-play").onclick = () => {
@@ -2156,7 +2209,7 @@ for (const [id, paso] of [["r-sig", 1], ["r-ant", -1]]) $(id).onclick = () => {
   rutina.i = Math.max(0, Math.min(rutina.pasos.length - 1, rutina.i + paso));
   if (seguia) correrRutina(rutina.i); else mostrarPasoRutina(rutina.i);
 };
-$("r-stop").onclick = () => { rutina.token++; rutina.corriendo = false; pararSonido(); try { window.speechSynthesis && speechSynthesis.cancel(); } catch {} armarRutina(); };
+$("r-stop").onclick = () => { const hechos = rutina.i; rutina.token++; rutina.corriendo = false; pararSonido(); cerrarMicRutina(); if (hechos >= 3 && hechos < rutina.pasos.length) ganarXP(10, "calentamiento"); try { window.speechSynthesis && speechSynthesis.cancel(); } catch {} armarRutina(); };
 for (const id of ["r-momento", "r-largo", "r-voz"]) $(id).onchange = () => { $("r-stop").onclick(); };
 
 // ===================================================================== repetí la nota (afinación básica)
